@@ -7,18 +7,21 @@ RUN_ROOT="${REPO_ROOT}/results/${RUN_ID}-full-experiment"
 STATE_ROOT="${REPO_ROOT}/.state"
 YES=false
 FROM_STAGE=""
+NO_CRD=false
+LIST=false
 
 log() { printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
 
 usage() {
   cat <<'EOF'
-Usage: scripts/00-run-full-experiment.sh --yes [--from STAGE] [--list]
+Usage: scripts/00-run-full-experiment.sh --yes [--no-crd] [--from STAGE] [--list]
 
 Run the default same-worker HAMi selective GPU checkpoint/restore experiment.
 
 Options:
   --yes         required; allows mutating stages to call their own --yes paths
+  --no-crd      run the no-CRD selective isolation probe instead of WorkloadCheckpoint/Restore
   --from STAGE resume from a stage id, for example deploy-workloads
   --list        print stage ids and exit
 
@@ -51,18 +54,35 @@ stage_cmd() { printf '%s' "$1" | cut -d'|' -f3-; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --yes|-y) YES=true ;;
+    --no-crd) NO_CRD=true ;;
     --from) shift; FROM_STAGE="${1:?missing stage id}" ;;
-    --list)
-      for stage in "${STAGES[@]}"; do
-        printf '%s\t%s\n' "$(stage_id "${stage}")" "$(stage_desc "${stage}")"
-      done
-      exit 0
-      ;;
+    --list) LIST=true ;;
     --help|-h) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
   shift
 done
+
+if [[ "${NO_CRD}" == "true" ]]; then
+  STAGES=(
+    "01-generate-env|Generate config/experiment.env|./scripts/00-generate-experiment-env.sh --force"
+    "02-preflight|Check kube-context, nodes, and GPU visibility|./scripts/00-preflight.sh"
+    "03-backup|Backup current cluster environment|./scripts/01-backup-current-environment.sh"
+    "04-install-hami|Install or upgrade HAMi|./scripts/02-install-hami.sh --yes"
+    "05-verify-hami|Verify HAMi components|./scripts/03-verify-hami.sh"
+    "06-deploy-workloads|Deploy Pod A and Pod B on the same-worker experiment path|./scripts/05-deploy-test-workloads.sh --yes"
+    "07-baseline|Collect baseline logs and GPU state|./scripts/06-run-baseline-test.sh"
+    "08-no-crd-isolation|Delete and recreate Pod A while checking Pod B continuity|./scripts/08-run-no-crd-selective-isolation-test.sh --yes"
+    "09-collect-results|Collect final experiment results|./scripts/11-collect-results.sh"
+  )
+fi
+
+if [[ "${LIST}" == "true" ]]; then
+  for stage in "${STAGES[@]}"; do
+    printf '%s\t%s\n' "$(stage_id "${stage}")" "$(stage_desc "${stage}")"
+  done
+  exit 0
+fi
 
 [[ "${YES}" == "true" ]] || die "Full experiment includes cluster-mutating stages. Re-run with --yes."
 
@@ -76,6 +96,7 @@ cat > "${summary}" <<EOF
 
 - run id: ${RUN_ID}
 - repository: ${REPO_ROOT}
+- mode: $([[ "${NO_CRD}" == "true" ]] && printf 'no-crd-selective-isolation' || printf 'checkpoint-restore')
 - started: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 EOF

@@ -321,3 +321,42 @@ cat results/<timestamp>-full-experiment/08-08-checkpoint-pod-a.log
 ```bash
 ./scripts/00-run-full-experiment.sh --yes --from 08-checkpoint-pod-a
 ```
+
+## C/R CRD 없이 1차 확인하기
+
+`WorkloadCheckpoint`, `WorkloadRestore` CRD와 controller가 없으면 진짜 GPU
+Checkpoint/Restore는 검증할 수 없습니다.
+
+하지만 아래 항목은 확인할 수 있습니다.
+
+- HAMi에서 Pod A와 Pod B가 같은 Worker Node의 GPU slice를 받아 같이 실행되는지
+- Pod A를 삭제해도 Pod B CUDA workload가 계속 실행되는지
+- Pod A를 다시 만들었을 때 HAMi가 GPU slice를 다시 할당하는지
+- Pod B가 restart되지 않고 heartbeat 로그가 계속 증가하는지
+
+이 모드는 “Checkpoint/Restore 성공”을 증명하지는 않습니다. 대신 C/R 시스템을 붙이기
+전에 HAMi 공유 GPU 격리성이 실험 가능한 상태인지 보는 1차 실험입니다.
+
+실행:
+
+```bash
+./scripts/00-run-full-experiment.sh --yes --no-crd
+```
+
+또는:
+
+```bash
+make run-no-crd
+```
+
+no-CRD 모드 단계 목록:
+
+```bash
+./scripts/00-run-full-experiment.sh --no-crd --list
+```
+
+중간에 실패했다가 다시 시작하려면:
+
+```bash
+./scripts/00-run-full-experiment.sh --yes --no-crd --from 08-no-crd-isolation
+```
