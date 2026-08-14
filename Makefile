@@ -1,6 +1,9 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: preflight backup install-hami verify-hami build-images deploy baseline hami-pause selective-cr pod-recreation cross-node collect clean rollback
+.PHONY: env preflight backup install-hami verify-hami build-images deploy baseline hami-pause selective-cr pod-recreation cross-node collect clean rollback
+
+env:
+	./scripts/00-generate-experiment-env.sh
 
 preflight:
 	./scripts/00-preflight.sh
@@ -43,4 +46,3 @@ clean:
 
 rollback:
 	./scripts/99-rollback-to-original-environment.sh
-
