@@ -46,5 +46,13 @@ write_state last-checkpoint-source-pod-uid "${source_pod_uid}"
 write_state last-checkpoint-observed-node "${observed_node}"
 
 capture checkpoint-objects kubectl -n "${EXPERIMENT_NAMESPACE}" get gpucheckpoint hami-pod-a-checkpoint -o yaml
+capture pod-a-after kubectl -n "${EXPERIMENT_NAMESPACE}" logs hami-pod-a --tail=500
 capture pod-b-after kubectl -n "${EXPERIMENT_NAMESPACE}" logs hami-pod-b --tail=100
+
+if [[ "${REQUIRE_GCR_SELECTIVE_DATA:-true}" == "true" ]]; then
+  pod_a_logs="$(kubectl -n "${EXPERIMENT_NAMESPACE}" logs hami-pod-a --tail=800 2>/dev/null || true)"
+  if ! grep -Eq '\[gcr\]\[engine\] freeze: [1-9][0-9]* segs' <<<"${pod_a_logs}"; then
+    die "GPUCheckpoint completed but Pod A logs do not show a GCR selective data freeze. Check that Pod A was rebuilt with shared cudart, then recreate Pod A/B and retry."
+  fi
+fi
 append_summary "# Selective Checkpoint" "" "- GPUCheckpoint hami-pod-a-checkpoint completed." "- checkpoint-uri: ${restore_checkpoint_uri}" "- data-uri: ${restore_data_uri}" "- source-pod-uid: ${source_pod_uid}" "- observed-node: ${observed_node:-UNKNOWN}" "- Pod B before/after logs captured."

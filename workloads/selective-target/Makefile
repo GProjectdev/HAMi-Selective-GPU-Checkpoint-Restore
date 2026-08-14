@@ -1,5 +1,5 @@
 CXX ?= nvcc
-CXXFLAGS ?= -O2
+CXXFLAGS ?= -O2 -cudart shared
 
 .PHONY: all clean
 
@@ -10,4 +10,3 @@ selective-target: src/main.cu
 
 clean:
 	rm -f selective-target
-

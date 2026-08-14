@@ -127,6 +127,32 @@ sudo bash hack/build-crio.sh
 sudo bash scripts/install-node.sh
 ```
 
+## Checkpoint는 Completed인데 `.blob`이 없을 때
+
+`gpu-cr-node-agent` 로그에 아래처럼 나오면 GCR selective data path가 GPU allocation을 잡지 못한 것입니다.
+
+```text
+GCR interception on but no data blob at /var/lib/gcr-data/<podUID>/data.blob
+```
+
+확인:
+
+```bash
+kubectl -n hami-selective-cr logs hami-pod-a --tail=200 | grep -Ei 'gcr|vmm|cudaMalloc|libcudart'
+kubectl -n hami-selective-cr describe pod hami-pod-a | grep -E 'LD_PRELOAD|GCR_|/opt/gpu-cr|/var/lib/gcr' -A2 -B2
+```
+
+Pod A 로그에 `libcudart.so`가 보여야 `LD_PRELOAD`가 CUDA runtime API를 가로챌 수 있습니다. `nvcc`가 static cudart로 빌드하면 interceptor는 checkpoint signal은 받지만 `cudaMalloc`을 소유하지 못해서 `.blob`이 생기지 않을 수 있습니다.
+
+이 저장소의 기본 Pod A manifest는 `nvcc -cudart shared`로 빌드합니다. 최신 코드를 받은 뒤 Pod A/B를 재생성하고 다시 checkpoint 하세요.
+
+```bash
+git pull origin main
+kubectl -n hami-selective-cr delete pod hami-pod-a hami-pod-b --ignore-not-found
+./scripts/05-deploy-test-workloads.sh --yes
+./scripts/08-run-gcr-criu-selective-test.sh --yes
+```
+
 ## Pod B Stops During Checkpoint
 
 This is a feasibility failure unless logs show an unrelated node or runtime issue. Collect:

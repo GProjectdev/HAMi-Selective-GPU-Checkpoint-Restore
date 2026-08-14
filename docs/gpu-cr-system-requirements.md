@@ -28,6 +28,7 @@ HAMi만으로는 GPU Checkpoint/Restore가 되지 않는다. HAMi는 GPU slice �
   - `GCR_VMM_ALLOC=1`
   - `GCR_POD_UID` fieldRef
   - GCR hostPath mount
+  - CUDA runtime이 shared cudart로 링크되어야 함. 이 저장소의 Pod A는 `nvcc -cudart shared`로 빌드한다.
 
 ## Restore에 필요한 것
 

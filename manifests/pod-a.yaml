@@ -20,7 +20,8 @@ spec:
       args:
         - |
           set -Eeuo pipefail
-          nvcc -O2 -o /tmp/selective-target /workspace-src/main.cu
+          nvcc -O2 -cudart shared -o /tmp/selective-target /workspace-src/main.cu
+          ldd /tmp/selective-target | grep -E 'libcudart|libcuda' || true
           exec /tmp/selective-target
       env:
         - name: WORKLOAD_ID
