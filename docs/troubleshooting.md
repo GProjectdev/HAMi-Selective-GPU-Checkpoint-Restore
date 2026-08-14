@@ -67,6 +67,40 @@ kubectl get crd | grep -Ei 'checkpoint|restore|gpu'
 
 Then update `manifests/checkpoint-resources.yaml`.
 
+If the full runner stops at `08-checkpoint-pod-a` with:
+
+```text
+no matches for kind "WorkloadCheckpoint"
+no matches for kind "WorkloadRestore"
+```
+
+the CUDA workloads and HAMi scheduling already passed, but the base GPU
+Checkpoint/Restore CRDs are not installed in the cluster or the manifest uses
+the wrong `apiVersion`.
+
+Check the cluster:
+
+```bash
+kubectl get crd | grep -Ei 'checkpoint|restore|gpu|workload'
+kubectl api-resources | grep -Ei 'checkpoint|restore|gpu|workload'
+```
+
+Check the sibling base repository for CRD manifests:
+
+```bash
+find ../K8s-Native-Fast-GPU-Checkpoint-Restore-System \
+  -type f \( -name '*.yaml' -o -name '*.yml' \) \
+  -exec grep -H 'kind: CustomResourceDefinition' {} \;
+```
+
+Install those CRDs/operator first. If the real Kind names or API groups differ,
+edit `manifests/checkpoint-resources.yaml` to match the installed CRDs and then
+resume:
+
+```bash
+./scripts/00-run-full-experiment.sh --yes --from 08-checkpoint-pod-a
+```
+
 ## Pod B Stops During Checkpoint
 
 This is a feasibility failure unless logs show an unrelated node or runtime issue. Collect:
