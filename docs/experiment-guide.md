@@ -32,7 +32,7 @@ Excluded:
 4. Run `scripts/01-backup-current-environment.sh`.
 5. Install HAMi with `scripts/02-install-hami.sh --yes`.
 6. Verify HAMi with `scripts/03-verify-hami.sh`.
-7. Build CUDA images with `scripts/04-build-test-images.sh`.
+7. Optionally run `scripts/04-build-test-images.sh` only if custom workload images are configured.
 8. Deploy Pod A and Pod B with `scripts/05-deploy-test-workloads.sh --yes`.
 9. Capture baseline with `scripts/06-run-baseline-test.sh`.
 10. Run selective checkpoint with `scripts/08-run-gcr-criu-selective-test.sh --yes`.
@@ -46,3 +46,5 @@ Cross-node restore is intentionally outside the default run. Use
 ## Notes
 
 `manifests/checkpoint-resources.yaml` intentionally uses placeholder CRD group names until the base C/R repository is inspected. Replace `apiVersion`, `kind`, and fields with the exact installed CRDs before live execution.
+
+The default workload path does not require user-selected images. The deploy script creates ConfigMaps from the CUDA source under `workloads/` and compiles those sources inside `nvidia/cuda:12.4.1-devel-ubuntu22.04` when each Pod starts.

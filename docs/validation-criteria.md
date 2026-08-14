@@ -3,6 +3,7 @@
 ## Success Criteria
 
 - Pod A and Pod B are scheduled on the same source worker and consume HAMi GPU resources.
+- Pod A and Pod B run the repository-provided CUDA workloads without requiring user-provided workload images.
 - Pod A produces CUDA heartbeat logs before checkpoint.
 - Pod B produces CUDA heartbeat logs before, during, and after Pod A checkpoint.
 - Pod A checkpoint object reaches the successful state defined by the base C/R system.

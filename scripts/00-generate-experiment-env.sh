@@ -76,9 +76,10 @@ CUDA_CHECKPOINT_BIN="${CUDA_CHECKPOINT_BIN:-/usr/local/bin/cuda-checkpoint}"
 CRIUGPU_PATH="${CRIUGPU_PATH:-/usr/local/bin/criugpu}"
 SHARED_CHECKPOINT_ROOT="${SHARED_CHECKPOINT_ROOT:-/mnt/nfs/gpu-checkpoints/hami-selective-cr}"
 
-IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io/gprojectdev}"
-TARGET_IMAGE="${TARGET_IMAGE:-${IMAGE_REGISTRY}/hami-selective-cr-target:latest}"
-CO_RUNNER_IMAGE="${CO_RUNNER_IMAGE:-${IMAGE_REGISTRY}/hami-selective-cr-co-runner:latest}"
+IMAGE_REGISTRY="${IMAGE_REGISTRY:-}"
+TARGET_IMAGE="${TARGET_IMAGE:-}"
+CO_RUNNER_IMAGE="${CO_RUNNER_IMAGE:-}"
+WORKLOAD_BASE_IMAGE="${WORKLOAD_BASE_IMAGE:-nvidia/cuda:12.4.1-devel-ubuntu22.04}"
 
 tmp_file="$(mktemp)"
 cat > "${tmp_file}" <<EOF
@@ -120,6 +121,12 @@ RESULT_ROOT=./results
 BACKUP_ROOT=./backups
 STATE_ROOT=./.state
 
+# Default path: no custom image build/push required. Pod A/B use this public
+# CUDA devel image and compile the repo-provided CUDA source from ConfigMaps.
+WORKLOAD_BASE_IMAGE=${WORKLOAD_BASE_IMAGE}
+
+# Optional legacy image path. These are only needed if you choose to run
+# scripts/04-build-test-images.sh and push custom images.
 IMAGE_REGISTRY=${IMAGE_REGISTRY}
 TARGET_IMAGE=${TARGET_IMAGE}
 CO_RUNNER_IMAGE=${CO_RUNNER_IMAGE}

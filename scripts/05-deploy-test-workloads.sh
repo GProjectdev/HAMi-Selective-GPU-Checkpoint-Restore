@@ -10,12 +10,26 @@ require_kubectl
 require_cmd envsubst
 confirm_destructive "Deploying test namespace and pods"
 
-export TARGET_IMAGE CO_RUNNER_IMAGE POD_A_MEMORY_MB POD_A_CORE_PERCENT POD_B_MEMORY_MB POD_B_CORE_PERCENT
-[[ -n "${TARGET_IMAGE:-}" ]] || die "Set TARGET_IMAGE."
-[[ -n "${CO_RUNNER_IMAGE:-}" ]] || die "Set CO_RUNNER_IMAGE."
+export WORKLOAD_BASE_IMAGE POD_A_MEMORY_MB POD_A_CORE_PERCENT POD_B_MEMORY_MB POD_B_CORE_PERCENT
+WORKLOAD_BASE_IMAGE="${WORKLOAD_BASE_IMAGE:-nvidia/cuda:12.4.1-devel-ubuntu22.04}"
 
 kubectl_apply "${REPO_ROOT}/manifests/namespace.yaml"
 kubectl_apply "${REPO_ROOT}/manifests/rbac.yaml"
+if [[ "${DRY_RUN}" == "true" ]]; then
+  kubectl -n "${EXPERIMENT_NAMESPACE}" create configmap hami-pod-a-source \
+    --from-file=main.cu="${REPO_ROOT}/workloads/selective-target/src/main.cu" \
+    --dry-run=client -o yaml | kubectl apply --dry-run=server -f -
+  kubectl -n "${EXPERIMENT_NAMESPACE}" create configmap hami-pod-b-source \
+    --from-file=main.cu="${REPO_ROOT}/workloads/co-runner/src/main.cu" \
+    --dry-run=client -o yaml | kubectl apply --dry-run=server -f -
+else
+  kubectl -n "${EXPERIMENT_NAMESPACE}" create configmap hami-pod-a-source \
+    --from-file=main.cu="${REPO_ROOT}/workloads/selective-target/src/main.cu" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  kubectl -n "${EXPERIMENT_NAMESPACE}" create configmap hami-pod-b-source \
+    --from-file=main.cu="${REPO_ROOT}/workloads/co-runner/src/main.cu" \
+    --dry-run=client -o yaml | kubectl apply -f -
+fi
 if [[ "${DRY_RUN}" == "true" ]]; then
   envsubst < "${REPO_ROOT}/manifests/pod-a.yaml" | kubectl apply --dry-run=server -f -
   envsubst < "${REPO_ROOT}/manifests/pod-b.yaml" | kubectl apply --dry-run=server -f -

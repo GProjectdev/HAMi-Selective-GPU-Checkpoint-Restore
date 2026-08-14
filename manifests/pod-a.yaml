@@ -13,16 +13,29 @@ spec:
   serviceAccountName: hami-selective-cr-runner
   containers:
     - name: selective-target
-      image: ${TARGET_IMAGE}
+      image: ${WORKLOAD_BASE_IMAGE}
       imagePullPolicy: IfNotPresent
+      command: ["/bin/bash", "-lc"]
+      args:
+        - |
+          set -Eeuo pipefail
+          nvcc -O2 -o /tmp/selective-target /workspace-src/main.cu
+          exec /tmp/selective-target
       env:
         - name: WORKLOAD_ID
           value: pod-a
         - name: CHECKPOINT_MARKER_PATH
           value: /tmp/hami-selective-target.marker
+      volumeMounts:
+        - name: workload-source
+          mountPath: /workspace-src
+          readOnly: true
       resources:
         limits:
           nvidia.com/gpu: "1"
           nvidia.com/gpumem: "${POD_A_MEMORY_MB}"
           nvidia.com/gpucores: "${POD_A_CORE_PERCENT}"
-
+  volumes:
+    - name: workload-source
+      configMap:
+        name: hami-pod-a-source

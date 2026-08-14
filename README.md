@@ -64,9 +64,30 @@ make env
 - 기존 C/R 저장소가 `../K8s-Native-Fast-GPU-Checkpoint-Restore-System`에 있으면 GCR/CRIU 관련 경로를 최대한 탐색합니다.
 - HAMi 기본 리소스 이름을 채웁니다.
 - Pod A/B를 각각 8GiB, 20% GPU core slice로 설정합니다.
-- 테스트 이미지 이름을 `ghcr.io/gprojectdev/...` 형식으로 채웁니다.
+- 기본 CUDA workload 실행 이미지를 `nvidia/cuda:12.4.1-devel-ubuntu22.04`로 설정합니다.
 
 자동 탐지하지 못한 값은 나중에 실행 스크립트가 다시 탐지하거나, 필요한 단계에서 명확히 실패합니다.
+
+## 워크로드를 직접 정해야 하나?
+
+아니요. 기본 실험에서는 사용자가 워크로드를 따로 정하지 않아도 됩니다.
+
+이 저장소가 이미 두 개의 CUDA workload를 제공합니다.
+
+- Pod A: `workloads/selective-target/src/main.cu`
+- Pod B: `workloads/co-runner/src/main.cu`
+
+`scripts/05-deploy-test-workloads.sh`는 이 CUDA 소스를 Kubernetes ConfigMap으로 올리고, Pod 안에서 public CUDA devel image인 `nvidia/cuda:12.4.1-devel-ubuntu22.04`를 사용해 즉석에서 컴파일한 뒤 실행합니다.
+
+즉 기본 흐름에서는 다음을 직접 준비하지 않아도 됩니다.
+
+- 별도 workload 선택
+- Dockerfile 수정
+- 이미지 registry 선택
+- `TARGET_IMAGE`, `CO_RUNNER_IMAGE` 수동 설정
+- 커스텀 이미지 push
+
+`scripts/04-build-test-images.sh`는 커스텀 이미지를 쓰고 싶을 때만 사용하는 선택 단계입니다. 기본 실험에서는 건너뛰어도 됩니다.
 
 ## 전체 실행 순서
 
@@ -129,13 +150,15 @@ cat config/experiment.env
 ./scripts/03-verify-hami.sh
 ```
 
-### 7. CUDA 테스트 이미지 빌드
+### 7. CUDA 테스트 workload 준비
 
 ```bash
 ./scripts/04-build-test-images.sh
 ```
 
-Kubernetes Worker가 이미지를 pull할 수 있어야 하므로, 실제 클러스터에서는 이미지 registry push가 필요할 수 있습니다.
+기본 실험에서는 이 단계가 선택 사항입니다. Pod 배포 스크립트가 repo 안의 CUDA 소스를 ConfigMap으로 올리고, Pod 시작 시 public CUDA devel image 안에서 컴파일합니다.
+
+커스텀 이미지를 쓰고 싶을 때만 `TARGET_IMAGE`, `CO_RUNNER_IMAGE`를 설정하고 이 스크립트를 사용하세요.
 
 ### 8. Pod A / Pod B 배포
 
@@ -144,6 +167,15 @@ Kubernetes Worker가 이미지를 pull할 수 있어야 하므로, 실제 클러
 ```
 
 Pod A는 checkpoint 대상이고, Pod B는 계속 실행되어야 하는 co-runner입니다.
+
+이 단계에서 실제로 하는 일:
+
+- namespace/RBAC 적용
+- Pod A CUDA source ConfigMap 생성
+- Pod B CUDA source ConfigMap 생성
+- Pod A/B manifest의 HAMi resource 값 치환
+- Pod A/B 배포
+- 두 Pod가 Ready가 될 때까지 대기
 
 ### 9. Baseline 수집
 

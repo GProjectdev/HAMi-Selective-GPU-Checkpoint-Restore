@@ -13,14 +13,27 @@ spec:
   serviceAccountName: hami-selective-cr-runner
   containers:
     - name: co-runner
-      image: ${CO_RUNNER_IMAGE}
+      image: ${WORKLOAD_BASE_IMAGE}
       imagePullPolicy: IfNotPresent
+      command: ["/bin/bash", "-lc"]
+      args:
+        - |
+          set -Eeuo pipefail
+          nvcc -O2 -o /tmp/co-runner /workspace-src/main.cu
+          exec /tmp/co-runner
       env:
         - name: WORKLOAD_ID
           value: pod-b
+      volumeMounts:
+        - name: workload-source
+          mountPath: /workspace-src
+          readOnly: true
       resources:
         limits:
           nvidia.com/gpu: "1"
           nvidia.com/gpumem: "${POD_B_MEMORY_MB}"
           nvidia.com/gpucores: "${POD_B_CORE_PERCENT}"
-
+  volumes:
+    - name: workload-source
+      configMap:
+        name: hami-pod-b-source

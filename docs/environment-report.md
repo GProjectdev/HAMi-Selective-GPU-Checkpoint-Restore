@@ -57,3 +57,12 @@ Current HAMi documentation identifies these default NVIDIA resource names:
 
 The install script uses the documented Helm repository `https://project-hami.github.io/HAMi/` and chart `hami-charts/hami`.
 
+## Default Workload Strategy
+
+The default experiment does not require custom image registry configuration.
+
+- Base image: `nvidia/cuda:12.4.1-devel-ubuntu22.04`
+- Pod A source: `workloads/selective-target/src/main.cu`
+- Pod B source: `workloads/co-runner/src/main.cu`
+
+The deploy script mounts the source through Kubernetes ConfigMaps and compiles it in the Pod at startup.
