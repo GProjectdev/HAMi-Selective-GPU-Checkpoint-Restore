@@ -249,3 +249,75 @@ Pod A/B 로그와 `nvidia-smi` 결과를 `results/` 아래 timestamp 디렉터�
 - 환경 리포트: `docs/environment-report.md`
 - 장애 대응: `docs/troubleshooting.md`
 - 원상복구: `docs/rollback-guide.md`
+
+## 한 번에 전체 실험 실행하기
+
+개별 명령을 하나씩 실행하지 않고 기본 실험 전체를 한 번에 돌리려면 아래 명령을 사용합니다.
+
+```bash
+./scripts/00-run-full-experiment.sh --yes
+```
+
+Makefile로도 실행할 수 있습니다.
+
+```bash
+make run
+```
+
+이 스크립트가 순서대로 실행하는 단계는 다음과 같습니다.
+
+```text
+01-generate-env        config/experiment.env 자동 생성
+02-preflight           kube-context, node, GPU 탐지 사전 점검
+03-backup              현재 클러스터 상태 백업
+04-install-hami        HAMi 설치 또는 업그레이드
+05-verify-hami         HAMi 구성 요소 상태 확인
+06-deploy-workloads    Pod A/B 기본 CUDA workload 배포
+07-baseline            Checkpoint 전 baseline 수집
+08-checkpoint-pod-a    Pod A만 checkpoint
+09-restore-pod-a       Pod A restore
+10-collect-results     최종 결과 수집
+```
+
+단계 목록만 보고 싶으면:
+
+```bash
+./scripts/00-run-full-experiment.sh --list
+```
+
+## 오류가 나면 어디서 멈췄는지 확인하기
+
+전체 실행 스크립트는 실패한 단계에서 즉시 멈춥니다. 실패 지점은 아래 파일들에 남습니다.
+
+```text
+.state/full-experiment-current-stage
+.state/full-experiment-last-failed-stage
+.state/full-experiment-last-run-dir
+results/<timestamp>-full-experiment/summary.md
+results/<timestamp>-full-experiment/<NN-stage>.log
+```
+
+예를 들어 `08-checkpoint-pod-a` 단계에서 실패하면:
+
+```text
+.state/full-experiment-last-failed-stage
+```
+
+안에 다음처럼 기록됩니다.
+
+```text
+08-checkpoint-pod-a
+```
+
+해당 단계의 자세한 로그는 최근 run directory에서 확인합니다.
+
+```bash
+cat .state/full-experiment-last-run-dir
+cat results/<timestamp>-full-experiment/08-08-checkpoint-pod-a.log
+```
+
+문제를 고친 뒤 같은 단계부터 다시 시작하려면:
+
+```bash
+./scripts/00-run-full-experiment.sh --yes --from 08-checkpoint-pod-a
+```
