@@ -21,7 +21,7 @@ Run the default same-worker HAMi selective GPU checkpoint/restore experiment.
 
 Options:
   --yes         required; allows mutating stages to call their own --yes paths
-  --no-crd      run the no-CRD selective isolation probe instead of WorkloadCheckpoint/Restore
+  --no-crd      run the no-CRD selective isolation probe instead of real GPU C/R
   --from STAGE resume from a stage id, for example deploy-workloads
   --list        print stage ids and exit
 
@@ -40,11 +40,13 @@ STAGES=(
   "03-backup|Backup current cluster environment|./scripts/01-backup-current-environment.sh"
   "04-install-hami|Install or upgrade HAMi|./scripts/02-install-hami.sh --yes"
   "05-verify-hami|Verify HAMi components|./scripts/03-verify-hami.sh"
-  "06-deploy-workloads|Deploy Pod A and Pod B on the same-worker experiment path|./scripts/05-deploy-test-workloads.sh --yes"
-  "07-baseline|Collect baseline logs and GPU state|./scripts/06-run-baseline-test.sh"
-  "08-checkpoint-pod-a|Checkpoint only Pod A|./scripts/08-run-gcr-criu-selective-test.sh --yes"
-  "09-restore-pod-a|Restore Pod A after Pod recreation|./scripts/09-run-pod-recreation-test.sh --yes"
-  "10-collect-results|Collect final experiment results|./scripts/11-collect-results.sh"
+  "06-install-gpu-cr-checkpoint|Install GPUCheckpoint CRD and Node Agent|./scripts/04-install-gpu-cr-checkpoint-system.sh --yes"
+  "07-check-restore-runtime|Record restore runtime prerequisites|./scripts/04-check-gpu-cr-restore-runtime.sh"
+  "08-deploy-workloads|Deploy Pod A and Pod B on the same-worker experiment path|./scripts/05-deploy-test-workloads.sh --yes"
+  "09-baseline|Collect baseline logs and GPU state|./scripts/06-run-baseline-test.sh"
+  "10-checkpoint-pod-a|Checkpoint only Pod A|./scripts/08-run-gcr-criu-selective-test.sh --yes"
+  "11-restore-pod-a|Restore Pod A after Pod recreation|./scripts/09-run-pod-recreation-test.sh --yes"
+  "12-collect-results|Collect final experiment results|./scripts/11-collect-results.sh"
 )
 
 stage_id() { printf '%s' "$1" | cut -d'|' -f1; }

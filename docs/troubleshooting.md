@@ -1,4 +1,4 @@
-# Troubleshooting
+# 장애 대응
 
 ## HAMi Pods Are Not Running
 
@@ -56,7 +56,7 @@ kubectl -n hami-selective-cr delete pod hami-pod-a hami-pod-b --ignore-not-found
 ./scripts/05-deploy-test-workloads.sh --yes
 ```
 
-## Checkpoint CRD Is Unknown
+## GPUCheckpoint CRD가 없다고 나올 때
 
 Inspect the base repository and installed CRDs:
 
@@ -65,18 +65,15 @@ kubectl api-resources | grep -Ei 'checkpoint|restore|gpu'
 kubectl get crd | grep -Ei 'checkpoint|restore|gpu'
 ```
 
-Then update `manifests/checkpoint-resources.yaml`.
+정상이라면 `gpucheckpoints.gpu-cr.io`가 보여야 합니다.
 
-If the full runner stops at `08-checkpoint-pod-a` with:
+전체 실행이 `10-checkpoint-pod-a`에서 아래처럼 멈추면:
 
 ```text
-no matches for kind "WorkloadCheckpoint"
-no matches for kind "WorkloadRestore"
+GPUCheckpoint CRD is not installed
 ```
 
-the CUDA workloads and HAMi scheduling already passed, but the base GPU
-Checkpoint/Restore CRDs are not installed in the cluster or the manifest uses
-the wrong `apiVersion`.
+HAMi와 CUDA workload 배포는 통과했지만, 체크포인트 시스템의 CRD/Node Agent가 아직 설치되지 않은 것입니다.
 
 Check the cluster:
 
@@ -93,12 +90,41 @@ find ../K8s-Native-Fast-GPU-Checkpoint-Restore-System \
   -exec grep -H 'kind: CustomResourceDefinition' {} \;
 ```
 
-Install those CRDs/operator first. If the real Kind names or API groups differ,
-edit `manifests/checkpoint-resources.yaml` to match the installed CRDs and then
-resume:
+해결:
 
 ```bash
-./scripts/00-run-full-experiment.sh --yes --from 08-checkpoint-pod-a
+./scripts/04-install-gpu-cr-checkpoint-system.sh --yes
+./scripts/00-run-full-experiment.sh --yes --from 10-checkpoint-pod-a
+```
+
+## Restore Pod가 Ready가 안 될 때
+
+`11-restore-pod-a`에서 실패하면 대부분 Kubernetes CRD 문제가 아니라 Worker Node runtime 문제입니다.
+
+확인:
+
+```bash
+kubectl -n hami-selective-cr describe pod hami-pod-a-restored
+kubectl -n hami-selective-cr get events --sort-by=.lastTimestamp
+```
+
+대상 Worker Node에서 확인:
+
+```bash
+systemctl is-active crio
+systemctl is-active gpu-cr-restore-agent.service
+journalctl -u crio -n 100
+journalctl -u gpu-cr-restore-agent.service -n 100
+ls -lh /var/lib/gcr-checkpoint
+ls -lh /var/lib/gcr-data
+```
+
+필요하면 Worker Node에서:
+
+```bash
+cd ../K8s-Native-GPU-Restore-CRI-O
+sudo bash hack/build-crio.sh
+sudo bash scripts/install-node.sh
 ```
 
 ## Pod B Stops During Checkpoint

@@ -42,6 +42,7 @@ command_exists() {
 }
 
 BASE_CR_REPO="../K8s-Native-Fast-GPU-Checkpoint-Restore-System"
+RESTORE_CR_REPO="../K8s-Native-GPU-Restore-CRI-O"
 
 detect_gpu_nodes() {
   if ! command_exists kubectl; then
@@ -63,15 +64,14 @@ find_repo_value() {
   local regex="$1"
   local base="${REPO_ROOT}/${BASE_CR_REPO}"
   [[ -d "${base}" ]] || return 0
-  grep -RhoE "${regex}" "${base}" 2>/dev/null | head -n 1 || true
+  grep -RhoE --exclude-dir=.git --exclude-dir=vendor "${regex}" "${base}" 2>/dev/null | head -n 1 || true
 }
 
-GCR_LIBRARY_PATH="$(find_repo_value "/[^[:space:]\"']*libgcr\\.so" || true)"
+GCR_LIBRARY_PATH="/var/lib/gpu-cr/lib/libgcr-interceptor.so"
 CUDA_CHECKPOINT_BIN="$(find_repo_value "/[^[:space:]\"']*cuda-checkpoint" || true)"
 CRIUGPU_PATH="$(find_repo_value "/[^[:space:]\"']*criugpu[^[:space:]\"']*" || true)"
 SHARED_CHECKPOINT_ROOT="$(find_repo_value "/[^[:space:]\"']*(nfs|checkpoint|checkpoints)[^[:space:]\"']*" || true)"
 
-GCR_LIBRARY_PATH="${GCR_LIBRARY_PATH:-/usr/local/lib/libgcr.so}"
 CUDA_CHECKPOINT_BIN="${CUDA_CHECKPOINT_BIN:-/usr/local/bin/cuda-checkpoint}"
 CRIUGPU_PATH="${CRIUGPU_PATH:-/usr/local/bin/criugpu}"
 SHARED_CHECKPOINT_ROOT="${SHARED_CHECKPOINT_ROOT:-/mnt/nfs/gpu-checkpoints/hami-selective-cr}"
@@ -91,6 +91,7 @@ cat > "${tmp_file}" <<EOF
 EXPERIMENT_NAMESPACE=hami-selective-cr
 
 BASE_CR_REPO=${BASE_CR_REPO}
+RESTORE_CR_REPO=${RESTORE_CR_REPO}
 
 # Auto-detected from kubectl if available. This experiment targets the same
 # Worker Node by default, so TARGET_NODE is intentionally set to SOURCE_NODE.
@@ -109,6 +110,15 @@ POD_B_CORE_PERCENT=20
 
 LOCAL_CHECKPOINT_ROOT=/var/lib/gpu-cr/checkpoints/hami-selective-cr
 SHARED_CHECKPOINT_ROOT=${SHARED_CHECKPOINT_ROOT}
+
+GPU_CR_NAMESPACE=gpu-cr-system
+GPU_CR_LIB_HOST_PATH=/var/lib/gpu-cr/lib
+GCR_CONTROL_DIR=/var/lib/gpu-cr/run
+GCR_DATA_DIR=/var/lib/gcr-data
+CHECKPOINT_STORAGE_TYPE=hostPath
+CHECKPOINT_STORAGE_PATH=/var/lib/gcr-checkpoint
+RESTORE_BLOB_MODE=copy
+RESTORE_TIMEOUT_SECONDS=300
 
 GCR_LIBRARY_PATH=${GCR_LIBRARY_PATH}
 CUDA_CHECKPOINT_BIN=${CUDA_CHECKPOINT_BIN}

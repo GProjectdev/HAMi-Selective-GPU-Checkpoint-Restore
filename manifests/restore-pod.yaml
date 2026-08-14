@@ -1,17 +1,23 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: hami-pod-a
+  name: hami-pod-a-restored
   namespace: hami-selective-cr
   labels:
     app.kubernetes.io/name: hami-selective-cr
-    experiment.gpu-cr/role: selective-target
+    experiment.gpu-cr/role: restored-target
   annotations:
-    experiment.gpu-cr/checkpoint-target: "true"
+    gpu-cr.io/restore: "true"
+    gpu-cr.io/checkpoint-uri: "${RESTORE_CHECKPOINT_URI}"
+    gpu-cr.io/source-pod-uid: "${RESTORE_SOURCE_POD_UID}"
+    gpu-cr.io/data-uri: "${RESTORE_DATA_URI}"
+    gpu-cr.io/blob-mode: "${RESTORE_BLOB_MODE}"
 spec:
   schedulerName: hami-scheduler
   restartPolicy: Never
   serviceAccountName: hami-selective-cr-runner
+  nodeSelector:
+    kubernetes.io/hostname: ${TARGET_NODE}
   containers:
     - name: selective-target
       image: ${WORKLOAD_BASE_IMAGE}
@@ -24,7 +30,7 @@ spec:
           exec /tmp/selective-target
       env:
         - name: WORKLOAD_ID
-          value: pod-a
+          value: pod-a-restored
         - name: CHECKPOINT_MARKER_PATH
           value: /tmp/hami-selective-target.marker
         - name: GCR_VMM_ALLOC

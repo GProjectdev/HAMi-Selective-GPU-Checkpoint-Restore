@@ -1,30 +1,19 @@
-# Adapt apiVersion/kind/field names to the CRDs from
-# ../K8s-Native-Fast-GPU-Checkpoint-Restore-System after confirming them.
-apiVersion: checkpoint.gpu.dev/v1alpha1
-kind: WorkloadCheckpoint
+apiVersion: gpu-cr.io/v1alpha1
+kind: GPUCheckpoint
 metadata:
   name: hami-pod-a-checkpoint
   namespace: hami-selective-cr
   labels:
     app.kubernetes.io/name: hami-selective-cr
 spec:
-  target:
+  workloadRef:
     kind: Pod
+    namespace: hami-selective-cr
     name: hami-pod-a
     container: selective-target
   storage:
-    sharedPath: ${SHARED_CHECKPOINT_ROOT}
-  gpu:
-    selective: true
-    hamiAware: true
-    includeGpuData: true
-    includeGpuControlState: true
-  safety:
-    expectedNonTargets:
-      - hami-pod-b
----
-apiVersion: restore.gpu.dev/v1alpha1
-kind: WorkloadRestore
+    type: ${CHECKPOINT_STORAGE_TYPE}
+    path: ${CHECKPOINT_STORAGE_PATH}
 metadata:
   name: hami-pod-a-restore
   namespace: hami-selective-cr
@@ -39,4 +28,3 @@ spec:
   gpu:
     remapUuid: true
     hamiAware: true
-
