@@ -38,6 +38,8 @@ else
   envsubst < "${REPO_ROOT}/manifests/pod-b.yaml" | kubectl apply -f -
 fi
 if [[ "${DRY_RUN}" != "true" ]]; then
+  kubectl -n "${EXPERIMENT_NAMESPACE}" get pod hami-pod-a hami-pod-b \
+    -o custom-columns=NAME:.metadata.name,SCHEDULER:.spec.schedulerName,PHASE:.status.phase,NODE:.spec.nodeName
   wait_pod_ready hami-pod-a
   wait_pod_ready hami-pod-b
 fi

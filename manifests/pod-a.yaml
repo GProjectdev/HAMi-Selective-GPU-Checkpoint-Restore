@@ -9,6 +9,7 @@ metadata:
   annotations:
     experiment.gpu-cr/checkpoint-target: "true"
 spec:
+  schedulerName: hami-scheduler
   restartPolicy: Never
   serviceAccountName: hami-selective-cr-runner
   containers:
