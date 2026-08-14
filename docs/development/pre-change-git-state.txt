@@ -1,0 +1,29 @@
+Generated before repository-specific edits.
+
+Requested target remote:
+https://github.com/GProjectdev/HAMi-Selective-GPU-Checkpoint-Restore.git
+
+Actual initial working directory:
+C:\Users\JeongSeungJun\Desktop\졸업준비
+
+Detected git top-level before target repository creation:
+C:/Users/JeongSeungJun
+
+Target repository directory existed before creation:
+false
+
+Reference repository directory existed before creation:
+false
+
+Current branch before target repository creation:
+main
+
+Remote -v before target repository creation:
+No remote configured in detected parent Git repository.
+
+Recent commit before target repository creation:
+No commits yet on main.
+
+Git status note:
+The detected parent Git repository is C:\Users\JeongSeungJun, not the requested experiment repository. It contains many unrelated untracked user files outside this task scope. Those files were not modified.
+

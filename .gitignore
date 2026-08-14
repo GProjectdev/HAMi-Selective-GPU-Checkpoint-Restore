@@ -1,0 +1,14 @@
+config/experiment.env
+config/github-auth.env
+results/*
+!results/.gitkeep
+backups/*
+!backups/.gitkeep
+.state/*
+!.state/.gitkeep
+*.log
+*.tar
+*.tar.gz
+*.checkpoint
+*.core
+

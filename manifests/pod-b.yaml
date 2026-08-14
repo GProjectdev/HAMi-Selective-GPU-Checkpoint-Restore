@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hami-pod-b
+  namespace: hami-selective-cr
+  labels:
+    app.kubernetes.io/name: hami-selective-cr
+    experiment.gpu-cr/role: co-runner
+  annotations:
+    experiment.gpu-cr/checkpoint-target: "false"
+spec:
+  restartPolicy: Never
+  serviceAccountName: hami-selective-cr-runner
+  containers:
+    - name: co-runner
+      image: ${CO_RUNNER_IMAGE}
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: WORKLOAD_ID
+          value: pod-b
+      resources:
+        limits:
+          nvidia.com/gpu: "1"
+          nvidia.com/gpumem: "${POD_B_MEMORY_MB}"
+          nvidia.com/gpucores: "${POD_B_CORE_PERCENT}"
+
