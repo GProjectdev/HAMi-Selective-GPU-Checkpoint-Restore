@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hami-selective-cr-monitoring-notes
+  namespace: hami-selective-cr
+data:
+  nvidia-smi-loop.sh: |
+    #!/usr/bin/env bash
+    set -Eeuo pipefail
+    while true; do
+      date -u '+%Y-%m-%dT%H:%M:%SZ'
+      nvidia-smi --query-gpu=uuid,name,memory.used,memory.total,utilization.gpu --format=csv
+      sleep 5
+    done
+

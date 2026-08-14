@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hami-pod-a
+  namespace: hami-selective-cr
+  labels:
+    app.kubernetes.io/name: hami-selective-cr
+    experiment.gpu-cr/role: selective-target
+  annotations:
+    experiment.gpu-cr/checkpoint-target: "true"
+spec:
+  restartPolicy: Never
+  serviceAccountName: hami-selective-cr-runner
+  containers:
+    - name: selective-target
+      image: ${TARGET_IMAGE}
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: WORKLOAD_ID
+          value: pod-a
+        - name: CHECKPOINT_MARKER_PATH
+          value: /tmp/hami-selective-target.marker
+      resources:
+        limits:
+          nvidia.com/gpu: "1"
+          nvidia.com/gpumem: "${POD_A_MEMORY_MB}"
+          nvidia.com/gpucores: "${POD_A_CORE_PERCENT}"
+
