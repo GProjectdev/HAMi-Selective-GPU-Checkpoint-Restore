@@ -9,7 +9,7 @@
 - Pod A GPU data and control state are stored in the configured checkpoint path.
 - Pod A restore succeeds in the same Pod or a recreated Pod.
 - Pod B does not restart, lose CUDA context, or stop producing heartbeats during Pod A checkpoint/restore.
-- Optional cross-node restore succeeds on `TARGET_NODE`.
+- Pod A restore succeeds on the same Worker Node selected as `SOURCE_NODE`.
 
 ## Failure Criteria
 
@@ -28,4 +28,3 @@
 - HAMi scheduler/device-plugin logs
 - Node annotations and allocatable resources
 - Checkpoint directory listing and sizes
-

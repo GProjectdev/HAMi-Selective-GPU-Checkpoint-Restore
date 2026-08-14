@@ -56,9 +56,7 @@ TARGET_NODE=""
 mapfile -t GPU_NODES < <(detect_gpu_nodes)
 if [[ ${#GPU_NODES[@]} -gt 0 ]]; then
   SOURCE_NODE="${GPU_NODES[0]}"
-fi
-if [[ ${#GPU_NODES[@]} -gt 1 ]]; then
-  TARGET_NODE="${GPU_NODES[1]}"
+  TARGET_NODE="${SOURCE_NODE}"
 fi
 
 find_repo_value() {
@@ -93,8 +91,9 @@ EXPERIMENT_NAMESPACE=hami-selective-cr
 
 BASE_CR_REPO=${BASE_CR_REPO}
 
-# Auto-detected from kubectl if available. Empty means later scripts will try
-# to detect GPU nodes again.
+# Auto-detected from kubectl if available. This experiment targets the same
+# Worker Node by default, so TARGET_NODE is intentionally set to SOURCE_NODE.
+# Empty means later scripts will try to detect a GPU node again.
 SOURCE_NODE=${SOURCE_NODE}
 TARGET_NODE=${TARGET_NODE}
 
@@ -145,4 +144,3 @@ fi
 if [[ ! -d "${REPO_ROOT}/${BASE_CR_REPO}" ]]; then
   log "Base C/R repository was not found at ${BASE_CR_REPO}; path-sensitive values used defaults."
 fi
-

@@ -12,7 +12,7 @@ Included:
 - HAMi GPU sharing with memory and core limits
 - Same-node and same-GPU checkpoint/restore first
 - Pod recreation restore
-- Optional cross-node restore to another A100 worker
+- Same-worker restore on the source GPU worker
 
 Excluded:
 
@@ -38,10 +38,11 @@ Excluded:
 10. Run selective checkpoint with `scripts/08-run-gcr-criu-selective-test.sh --yes`.
 11. Check that Pod B heartbeat logs continue through the checkpoint window.
 12. Run restore-in-new-pod with `scripts/09-run-pod-recreation-test.sh --yes`.
-13. If same-node restore succeeds, run `scripts/10-run-cross-node-restore-test.sh --yes`.
-14. Collect results with `scripts/11-collect-results.sh`.
+13. Collect results with `scripts/11-collect-results.sh`.
+
+Cross-node restore is intentionally outside the default run. Use
+`scripts/10-run-cross-node-restore-test.sh --yes` only for a later extension.
 
 ## Notes
 
 `manifests/checkpoint-resources.yaml` intentionally uses placeholder CRD group names until the base C/R repository is inspected. Replace `apiVersion`, `kind`, and fields with the exact installed CRDs before live execution.
-

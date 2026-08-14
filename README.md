@@ -11,7 +11,7 @@
 - Pod B는 Pod A의 Checkpoint/Restore 중에도 계속 CUDA 작업을 수행해야 합니다.
 - Pod A를 같은 노드/같은 GPU에서 Restore합니다.
 - 이후 Pod A를 삭제하고 새 Pod로 Restore합니다.
-- 가능하면 다른 Worker Node의 A100 GPU로 Cross-node Restore를 확장합니다.
+- 이번 기본 실험은 다른 Worker Node가 아니라 동일 Worker Node에서 Restore합니다.
 
 이번 단계에서는 Dynamic Repacking, Bin-packing, MIG, MPS, NCCL, CUDA IPC, UVM은 다루지 않습니다.
 
@@ -60,7 +60,7 @@ make env
 
 자동 생성 스크립트가 채우는 값:
 
-- `kubectl`이 있으면 GPU Worker Node를 탐지해서 `SOURCE_NODE`, `TARGET_NODE`를 채웁니다.
+- `kubectl`이 있으면 GPU Worker Node를 탐지해서 `SOURCE_NODE`를 채우고, 기본적으로 `TARGET_NODE`도 같은 노드로 설정합니다.
 - 기존 C/R 저장소가 `../K8s-Native-Fast-GPU-Checkpoint-Restore-System`에 있으면 GCR/CRIU 관련 경로를 최대한 탐색합니다.
 - HAMi 기본 리소스 이름을 채웁니다.
 - Pod A/B를 각각 8GiB, 20% GPU core slice로 설정합니다.
@@ -167,27 +167,19 @@ Pod A/B 로그와 `nvidia-smi` 결과를 `results/` 아래 timestamp 디렉터�
 ./scripts/09-run-pod-recreation-test.sh --yes
 ```
 
-### 12. Cross-node Restore 실험
-
-```bash
-./scripts/10-run-cross-node-restore-test.sh --yes
-```
-
-먼저 같은 노드/같은 GPU Restore가 성공한 뒤 실행하는 것을 권장합니다.
-
-### 13. 결과 수집
+### 12. 결과 수집
 
 ```bash
 ./scripts/11-collect-results.sh
 ```
 
-### 14. 실험 리소스 정리
+### 13. 실험 리소스 정리
 
 ```bash
 ./scripts/12-clean-test-resources.sh --yes
 ```
 
-### 15. 원상복구
+### 14. 원상복구
 
 ```bash
 ./scripts/99-rollback-to-original-environment.sh --yes
@@ -202,7 +194,7 @@ Pod A/B 로그와 `nvidia-smi` 결과를 `results/` 아래 timestamp 디렉터�
 - Pod B 로그 heartbeat가 checkpoint 전/중/후 계속 증가합니다.
 - Pod B가 restart되지 않습니다.
 - Pod A restore 후 CUDA heartbeat가 다시 이어집니다.
-- 가능하면 다른 A100 Worker Node에서도 restore가 성공합니다.
+- Pod A가 동일 Worker Node에서 restore됩니다.
 
 자세한 기준은 `docs/validation-criteria.md`를 확인하세요.
 
@@ -225,4 +217,3 @@ Pod A/B 로그와 `nvidia-smi` 결과를 `results/` 아래 timestamp 디렉터�
 - 환경 리포트: `docs/environment-report.md`
 - 장애 대응: `docs/troubleshooting.md`
 - 원상복구: `docs/rollback-guide.md`
-
