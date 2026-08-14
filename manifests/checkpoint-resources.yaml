@@ -14,17 +14,3 @@ spec:
   storage:
     type: ${CHECKPOINT_STORAGE_TYPE}
     path: ${CHECKPOINT_STORAGE_PATH}
-metadata:
-  name: hami-pod-a-restore
-  namespace: hami-selective-cr
-  labels:
-    app.kubernetes.io/name: hami-selective-cr
-spec:
-  checkpointRef:
-    name: hami-pod-a-checkpoint
-  target:
-    podName: hami-pod-a-restored
-    nodeName: ${TARGET_NODE}
-  gpu:
-    remapUuid: true
-    hamiAware: true
