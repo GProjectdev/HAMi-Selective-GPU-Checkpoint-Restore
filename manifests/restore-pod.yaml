@@ -62,6 +62,17 @@ spec:
           mountPath: /var/lib/gcr-checkpoint
         - name: gcr-data
           mountPath: /var/lib/gcr-data
+        - name: hami-vgpu-lock
+          mountPath: /tmp/vgpulock
+        - name: hami-ld-preload
+          mountPath: /etc/ld.so.preload
+          readOnly: true
+        - name: hami-vgpu-dir
+          mountPath: /usr/local/vgpu
+          readOnly: true
+        - name: hami-libvgpu
+          mountPath: /usr/local/vgpu/libvgpu.so
+          readOnly: true
       resources:
         limits:
           nvidia.com/gpu: "1"
@@ -87,3 +98,19 @@ spec:
       hostPath:
         path: ${GCR_DATA_DIR}
         type: DirectoryOrCreate
+    - name: hami-vgpu-lock
+      hostPath:
+        path: ${RESTORE_HAMI_VGPU_LOCK_SOURCE}
+        type: DirectoryOrCreate
+    - name: hami-ld-preload
+      hostPath:
+        path: ${RESTORE_HAMI_LD_PRELOAD_SOURCE}
+        type: File
+    - name: hami-vgpu-dir
+      hostPath:
+        path: ${RESTORE_HAMI_VGPU_DIR_SOURCE}
+        type: Directory
+    - name: hami-libvgpu
+      hostPath:
+        path: ${RESTORE_HAMI_LIBVGPU_SOURCE}
+        type: File

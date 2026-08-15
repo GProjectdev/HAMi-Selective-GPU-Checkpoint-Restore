@@ -120,6 +120,12 @@ CHECKPOINT_STORAGE_PATH=/var/lib/gcr-checkpoint
 RESTORE_BLOB_MODE=copy
 RESTORE_TIMEOUT_SECONDS=300
 REQUIRE_GCR_SELECTIVE_DATA=true
+RESTORE_HAMI_VGPU_LOCK_SOURCE=/tmp/vgpulock
+RESTORE_HAMI_LD_PRELOAD_SOURCE=/usr/local/vgpu/ld.so.preload
+# Empty means scripts/09-run-pod-recreation-test.sh derives:
+# /usr/local/vgpu/containers/<checkpoint-source-pod-uid>_selective-target
+RESTORE_HAMI_VGPU_DIR_SOURCE=
+RESTORE_HAMI_LIBVGPU_SOURCE=/usr/local/vgpu/libvgpu.so.v2.9.0
 
 GCR_LIBRARY_PATH=${GCR_LIBRARY_PATH}
 CUDA_CHECKPOINT_BIN=${CUDA_CHECKPOINT_BIN}

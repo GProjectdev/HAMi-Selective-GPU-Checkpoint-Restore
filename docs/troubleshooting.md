@@ -166,3 +166,39 @@ kubectl -n hami-selective-cr get events --sort-by=.lastTimestamp
 ## Restore Fails After GPU UUID Change
 
 Confirm the base C/R implementation's GPU UUID remap mechanism. Do not hardcode UUIDs in manifests or scripts.
+
+## Restore Fails With Missing HAMi Bind Mounts
+
+If CRI-O logs show a message like this:
+
+```text
+missing bind mounts: /tmp/vgpulock,/etc/ld.so.preload,/usr/local/vgpu,/usr/local/vgpu/libvgpu.so
+```
+
+then the checkpoint and `.blob` may already be staged correctly, but CRIU cannot
+recreate the bind mounts that HAMi injected into the original Pod. Confirm the
+actual host sources on the checkpointed Worker Node:
+
+```bash
+CKPT=/var/lib/gcr-checkpoint/checkpoint-hami-pod-a_hami-selective-cr-selective-target-1786711554.tar
+WORK=$(mktemp -d)
+sudo tar -xf "$CKPT" -C "$WORK" spec.dump
+
+sudo python3 - "$WORK/spec.dump" <<'PY'
+import json, os, sys
+spec = json.load(open(sys.argv[1]))
+for m in spec.get("mounts", []):
+    dst = m.get("destination", "")
+    src = m.get("source", "")
+    if any(x in dst for x in ["vgpu", "ld.so.preload", "vgpulock"]):
+        print(f"{src} -> {dst} exists={os.path.exists(src)}")
+PY
+```
+
+The restore script now provides these HAMi mounts explicitly. If your HAMi
+version does not use `/usr/local/vgpu/libvgpu.so.v2.9.0`, set the correct path in
+`config/experiment.env`:
+
+```bash
+RESTORE_HAMI_LIBVGPU_SOURCE=/usr/local/vgpu/libvgpu.so.<your-version>
+```

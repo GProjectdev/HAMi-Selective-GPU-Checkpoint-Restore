@@ -23,7 +23,18 @@ TARGET_NODE="${TARGET_NODE:-${observed_node}}"
 [[ -n "${RESTORE_SOURCE_POD_UID}" ]] || die "Missing source Pod UID. Run scripts/08-run-gcr-criu-selective-test.sh --yes first."
 [[ -n "${TARGET_NODE}" ]] || die "TARGET_NODE is empty and checkpoint observed node was not recorded."
 [[ -n "${RESTORE_GPU_UUID}" ]] || die "Missing HAMi GPU UUID. Re-run scripts/08-run-gcr-criu-selective-test.sh --yes with a HAMi-bound Pod A, or set RESTORE_GPU_UUID manually."
+
+# HAMi injects these paths through the device plugin when the original Pod is
+# created. CRIU restore validates the checkpointed bind mounts before the device
+# plugin can transparently recreate them, so the restore Pod must provide the
+# same destination paths explicitly.
+RESTORE_HAMI_VGPU_LOCK_SOURCE="${RESTORE_HAMI_VGPU_LOCK_SOURCE:-/tmp/vgpulock}"
+RESTORE_HAMI_LD_PRELOAD_SOURCE="${RESTORE_HAMI_LD_PRELOAD_SOURCE:-/usr/local/vgpu/ld.so.preload}"
+RESTORE_HAMI_VGPU_DIR_SOURCE="${RESTORE_HAMI_VGPU_DIR_SOURCE:-/usr/local/vgpu/containers/${RESTORE_SOURCE_POD_UID}_selective-target}"
+RESTORE_HAMI_LIBVGPU_SOURCE="${RESTORE_HAMI_LIBVGPU_SOURCE:-/usr/local/vgpu/libvgpu.so.v2.9.0}"
+
 export RESTORE_CHECKPOINT_URI RESTORE_DATA_URI RESTORE_SOURCE_POD_UID RESTORE_GPU_UUID RESTORE_BLOB_MODE TARGET_NODE
+export RESTORE_HAMI_VGPU_LOCK_SOURCE RESTORE_HAMI_LD_PRELOAD_SOURCE RESTORE_HAMI_VGPU_DIR_SOURCE RESTORE_HAMI_LIBVGPU_SOURCE
 
 capture restore-manifest bash -lc "envsubst < '${REPO_ROOT}/manifests/restore-pod.yaml'"
 
