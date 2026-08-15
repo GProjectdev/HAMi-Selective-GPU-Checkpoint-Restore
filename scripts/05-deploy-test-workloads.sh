@@ -30,6 +30,9 @@ else
     --from-file=main.cu="${REPO_ROOT}/workloads/co-runner/src/main.cu" \
     --dry-run=client -o yaml | kubectl apply -f -
 fi
+if [[ "${DRY_RUN}" != "true" ]]; then
+  kubectl -n "${EXPERIMENT_NAMESPACE}" delete pod hami-pod-a hami-pod-b --ignore-not-found=true --wait=true
+fi
 if [[ "${DRY_RUN}" == "true" ]]; then
   envsubst < "${REPO_ROOT}/manifests/pod-a.yaml" | kubectl apply --dry-run=server -f -
   envsubst < "${REPO_ROOT}/manifests/pod-b.yaml" | kubectl apply --dry-run=server -f -

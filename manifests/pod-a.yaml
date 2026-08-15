@@ -22,6 +22,7 @@ spec:
           set -Eeuo pipefail
           nvcc -O2 -cudart shared -o /tmp/selective-target /workspace-src/main.cu
           ldd /tmp/selective-target | grep -E 'libcudart|libcuda' || true
+          export LD_PRELOAD=/opt/gpu-cr/libgcr-interceptor.so
           exec /tmp/selective-target
       env:
         - name: WORKLOAD_ID
@@ -30,8 +31,6 @@ spec:
           value: /tmp/hami-selective-target.marker
         - name: GCR_VMM_ALLOC
           value: "1"
-        - name: LD_PRELOAD
-          value: /opt/gpu-cr/libgcr-interceptor.so
         - name: GCR_HOME
           value: /opt/gpu-cr
         - name: GCR_POD_UID
