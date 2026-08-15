@@ -12,6 +12,7 @@ metadata:
     gpu-cr.io/source-pod-uid: "${RESTORE_SOURCE_POD_UID}"
     gpu-cr.io/data-uri: "${RESTORE_DATA_URI}"
     gpu-cr.io/blob-mode: "${RESTORE_BLOB_MODE}"
+    nvidia.com/use-gpuuuid: "${RESTORE_GPU_UUID}"
 spec:
   schedulerName: hami-scheduler
   restartPolicy: Never

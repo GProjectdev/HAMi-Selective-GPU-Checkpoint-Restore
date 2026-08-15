@@ -33,6 +33,8 @@ fi
 checkpoint_path="$(kubectl -n "${EXPERIMENT_NAMESPACE}" get gpucheckpoint hami-pod-a-checkpoint -o jsonpath='{.status.lastCheckpointPath}' 2>/dev/null || true)"
 source_pod_uid="$(kubectl -n "${EXPERIMENT_NAMESPACE}" get gpucheckpoint hami-pod-a-checkpoint -o jsonpath='{.status.podUID}' 2>/dev/null || true)"
 observed_node="$(kubectl -n "${EXPERIMENT_NAMESPACE}" get gpucheckpoint hami-pod-a-checkpoint -o jsonpath='{.status.observedNode}' 2>/dev/null || true)"
+hami_allocation="$(kubectl -n "${EXPERIMENT_NAMESPACE}" get pod hami-pod-a -o jsonpath='{.metadata.annotations.hami\.io/vgpu-devices-allocated}' 2>/dev/null || true)"
+hami_gpu_uuid="$(awk -F, '{print $1}' <<<"${hami_allocation}")"
 
 [[ -n "${checkpoint_path}" ]] || die "GPUCheckpoint completed but status.lastCheckpointPath is empty."
 [[ -n "${source_pod_uid}" ]] || die "GPUCheckpoint completed but status.podUID is empty."
@@ -44,6 +46,8 @@ write_state last-checkpoint-uri "${restore_checkpoint_uri}"
 write_state last-checkpoint-data-uri "${restore_data_uri}"
 write_state last-checkpoint-source-pod-uid "${source_pod_uid}"
 write_state last-checkpoint-observed-node "${observed_node}"
+write_state last-hami-gpu-allocation "${hami_allocation}"
+write_state last-hami-gpu-uuid "${hami_gpu_uuid}"
 
 capture checkpoint-objects kubectl -n "${EXPERIMENT_NAMESPACE}" get gpucheckpoint hami-pod-a-checkpoint -o yaml
 capture pod-a-after kubectl -n "${EXPERIMENT_NAMESPACE}" logs hami-pod-a --tail=500
@@ -55,4 +59,4 @@ if [[ "${REQUIRE_GCR_SELECTIVE_DATA:-true}" == "true" ]]; then
     die "GPUCheckpoint completed but Pod A logs do not show a GCR selective data freeze. Check that Pod A was rebuilt with shared cudart, then recreate Pod A/B and retry."
   fi
 fi
-append_summary "# Selective Checkpoint" "" "- GPUCheckpoint hami-pod-a-checkpoint completed." "- checkpoint-uri: ${restore_checkpoint_uri}" "- data-uri: ${restore_data_uri}" "- source-pod-uid: ${source_pod_uid}" "- observed-node: ${observed_node:-UNKNOWN}" "- Pod B before/after logs captured."
+append_summary "# Selective Checkpoint" "" "- GPUCheckpoint hami-pod-a-checkpoint completed." "- checkpoint-uri: ${restore_checkpoint_uri}" "- data-uri: ${restore_data_uri}" "- source-pod-uid: ${source_pod_uid}" "- observed-node: ${observed_node:-UNKNOWN}" "- hami-gpu-uuid: ${hami_gpu_uuid:-UNKNOWN}" "- Pod B before/after logs captured."
