@@ -30,11 +30,81 @@ TARGET_NODE="${TARGET_NODE:-${observed_node}}"
 # same destination paths explicitly.
 RESTORE_HAMI_VGPU_LOCK_SOURCE="${RESTORE_HAMI_VGPU_LOCK_SOURCE:-/tmp/vgpulock}"
 RESTORE_HAMI_LD_PRELOAD_SOURCE="${RESTORE_HAMI_LD_PRELOAD_SOURCE:-/usr/local/vgpu/ld.so.preload}"
-RESTORE_HAMI_VGPU_DIR_SOURCE="${RESTORE_HAMI_VGPU_DIR_SOURCE:-/usr/local/vgpu/containers/${RESTORE_SOURCE_POD_UID}_selective-target}"
+RESTORE_HAMI_ORIGINAL_VGPU_DIR_SOURCE="${RESTORE_HAMI_ORIGINAL_VGPU_DIR_SOURCE:-/usr/local/vgpu/containers/${RESTORE_SOURCE_POD_UID}_selective-target}"
+RESTORE_HAMI_VGPU_DIR_SOURCE="${RESTORE_HAMI_VGPU_DIR_SOURCE:-/usr/local/vgpu/restore-cache/${RESTORE_SOURCE_POD_UID}_selective-target}"
 RESTORE_HAMI_LIBVGPU_SOURCE="${RESTORE_HAMI_LIBVGPU_SOURCE:-/usr/local/vgpu/libvgpu.so.v2.9.0}"
 
 export RESTORE_CHECKPOINT_URI RESTORE_DATA_URI RESTORE_SOURCE_POD_UID RESTORE_GPU_UUID RESTORE_BLOB_MODE TARGET_NODE
 export RESTORE_HAMI_VGPU_LOCK_SOURCE RESTORE_HAMI_LD_PRELOAD_SOURCE RESTORE_HAMI_VGPU_DIR_SOURCE RESTORE_HAMI_LIBVGPU_SOURCE
+
+cache_hami_vgpu_dir() {
+  local helper="hami-restore-hami-cache"
+
+  log "Caching HAMi vGPU directory on ${TARGET_NODE}: ${RESTORE_HAMI_ORIGINAL_VGPU_DIR_SOURCE} -> ${RESTORE_HAMI_VGPU_DIR_SOURCE}"
+  kubectl -n "${EXPERIMENT_NAMESPACE}" delete pod "${helper}" --ignore-not-found=true --wait=true >/dev/null
+  cat <<YAML | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${helper}
+  namespace: ${EXPERIMENT_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: hami-selective-cr
+    experiment.gpu-cr/role: restore-helper
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: ${TARGET_NODE}
+  containers:
+    - name: cache
+      image: ${WORKLOAD_BASE_IMAGE}
+      imagePullPolicy: IfNotPresent
+      command: ["/bin/bash", "-lc"]
+      args:
+        - |
+          set -Eeuo pipefail
+          src="/host${RESTORE_HAMI_ORIGINAL_VGPU_DIR_SOURCE}"
+          dst="/host${RESTORE_HAMI_VGPU_DIR_SOURCE}"
+          if [ -d "\${dst}" ]; then
+            echo "HAMi restore cache already exists: \${dst}"
+            exit 0
+          fi
+          if [ ! -d "\${src}" ]; then
+            echo "Missing original HAMi vGPU directory: \${src}" >&2
+            echo "Re-run scripts/05-deploy-test-workloads.sh --yes and scripts/08-run-gcr-criu-selective-test.sh --yes before restore." >&2
+            exit 42
+          fi
+          mkdir -p "\$(dirname "\${dst}")"
+          rm -rf "\${dst}.tmp"
+          cp -a "\${src}" "\${dst}.tmp"
+          mv "\${dst}.tmp" "\${dst}"
+          echo "Cached HAMi vGPU directory: \${dst}"
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - name: host-root
+          mountPath: /host
+  volumes:
+    - name: host-root
+      hostPath:
+        path: /
+        type: Directory
+YAML
+  if ! kubectl -n "${EXPERIMENT_NAMESPACE}" wait --for=condition=Ready "pod/${helper}" --timeout=120s >/dev/null 2>&1; then
+    :
+  fi
+  if ! kubectl -n "${EXPERIMENT_NAMESPACE}" wait --for=jsonpath='{.status.phase}'=Succeeded "pod/${helper}" --timeout=120s; then
+    kubectl -n "${EXPERIMENT_NAMESPACE}" describe pod "${helper}" || true
+    kubectl -n "${EXPERIMENT_NAMESPACE}" logs "${helper}" --tail=120 || true
+    die "Failed to cache HAMi vGPU directory before restore."
+  fi
+  kubectl -n "${EXPERIMENT_NAMESPACE}" logs "${helper}" --tail=80
+  kubectl -n "${EXPERIMENT_NAMESPACE}" delete pod "${helper}" --ignore-not-found=true --wait=false >/dev/null
+}
+
+if [[ "${DRY_RUN}" != "true" ]]; then
+  cache_hami_vgpu_dir
+fi
 
 capture restore-manifest bash -lc "envsubst < '${REPO_ROOT}/manifests/restore-pod.yaml'"
 
