@@ -22,6 +22,7 @@ data_uri="$(cat "${state_dir}/last-checkpoint-data-uri" 2>/dev/null || true)"
 source_pod_uid="$(cat "${state_dir}/last-checkpoint-source-pod-uid" 2>/dev/null || true)"
 source_node="$(cat "${state_dir}/last-checkpoint-observed-node" 2>/dev/null || true)"
 hami_gpu_uuid="$(cat "${state_dir}/last-hami-gpu-uuid" 2>/dev/null || true)"
+hami_cache_source="/usr/local/vgpu/containers/${source_pod_uid}_selective-target"
 
 [[ -n "${checkpoint_path}" ]] || die "Missing .state/last-checkpoint-path. Run scripts/08-run-gcr-criu-selective-test.sh --yes first."
 [[ -n "${source_pod_uid}" ]] || die "Missing .state/last-checkpoint-source-pod-uid. Run scripts/08-run-gcr-criu-selective-test.sh --yes first."
@@ -84,12 +85,19 @@ spec:
           set -Eeuo pipefail
           src_tar="/host${checkpoint_path}"
           src_blob="/host${checkpoint_path%.tar}.blob"
+          src_hami_cache="/host${hami_cache_source}"
           dst="/nfs/${nfs_run_dir}"
           test -f "\${src_tar}" || { echo "missing checkpoint tar: \${src_tar}" >&2; exit 10; }
           test -f "\${src_blob}" || { echo "missing checkpoint blob: \${src_blob}" >&2; exit 11; }
+          test -d "\${src_hami_cache}" || { echo "missing source HAMi runtime dir: \${src_hami_cache}" >&2; exit 12; }
           mkdir -p "\${dst}"
           cp -a "\${src_tar}" "\${dst}/${tar_name}"
           cp -a "\${src_blob}" "\${dst}/${blob_name}"
+          rm -rf "\${dst}/hami-vgpu-cache.tmp"
+          cp -a "\${src_hami_cache}" "\${dst}/hami-vgpu-cache.tmp"
+          find "\${dst}/hami-vgpu-cache.tmp" -maxdepth 2 -type f -name '*.cache' -exec chmod 0666 {} +
+          rm -rf "\${dst}/hami-vgpu-cache"
+          mv "\${dst}/hami-vgpu-cache.tmp" "\${dst}/hami-vgpu-cache"
           cd "\${dst}"
           sha256sum "${tar_name}" "${blob_name}" > SHA256SUMS
           {
@@ -104,8 +112,10 @@ spec:
             printf '%s\n' 'nfs_run_dir=${nfs_run_dir}'
             printf '%s\n' 'tar_name=${tar_name}'
             printf '%s\n' 'blob_name=${blob_name}'
+            printf '%s\n' 'hami_cache_source=${hami_cache_source}'
           } > metadata.env
           ls -lh
+          find hami-vgpu-cache -maxdepth 2 -ls
           cat SHA256SUMS
       securityContext:
         privileged: true
@@ -153,7 +163,9 @@ spec:
           set -Eeuo pipefail
           cd "/nfs/${nfs_run_dir}"
           sha256sum -c SHA256SUMS
+          test -d hami-vgpu-cache || { echo "missing staged hami-vgpu-cache" >&2; exit 21; }
           ls -lh
+          find hami-vgpu-cache -maxdepth 2 -ls
           cat metadata.env
       volumeMounts:
         - name: nfs-artifacts
@@ -184,6 +196,7 @@ append_summary "# Cross Node NFS Artifact Readiness" "" \
   "- nfs-run-dir: ${nfs_run_dir}" \
   "- checkpoint-file: ${tar_name}" \
   "- data-file: ${blob_name}" \
+  "- hami-cache: hami-vgpu-cache" \
   "- target node verified SHA256SUMS successfully."
 
 log "Cross-node NFS artifact readiness verified. Result: ${RESULT_DIR}"

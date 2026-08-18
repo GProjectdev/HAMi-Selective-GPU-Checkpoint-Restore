@@ -90,7 +90,17 @@ spec:
           set -Eeuo pipefail
           src="/host${RESTORE_HAMI_ORIGINAL_VGPU_DIR_SOURCE}"
           dst="/nfs/${nfs_run_dir}/hami-vgpu-cache"
-          test -d "\${src}" || { echo "missing source HAMi runtime dir: \${src}" >&2; exit 20; }
+          if [ ! -d "\${src}" ]; then
+            if [ -d "\${dst}" ]; then
+              echo "source HAMi runtime dir is gone, reusing staged NFS cache: \${dst}"
+              find "\${dst}" -maxdepth 2 -ls
+              exit 0
+            fi
+            echo "missing source HAMi runtime dir: \${src}" >&2
+            echo "NFS hami-vgpu-cache is also missing: \${dst}" >&2
+            echo "Re-run scripts/05-deploy-test-workloads.sh, scripts/08-run-gcr-criu-selective-test.sh, and scripts/10-prepare-cross-node-nfs-artifacts.sh while hami-pod-a is still present." >&2
+            exit 20
+          fi
           rm -rf "\${dst}.tmp"
           mkdir -p "\$(dirname "\${dst}")"
           cp -a "\${src}" "\${dst}.tmp"
