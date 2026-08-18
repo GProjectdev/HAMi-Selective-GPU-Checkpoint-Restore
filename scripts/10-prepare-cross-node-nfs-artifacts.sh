@@ -92,19 +92,19 @@ spec:
           cp -a "\${src_blob}" "\${dst}/${blob_name}"
           cd "\${dst}"
           sha256sum "${tar_name}" "${blob_name}" > SHA256SUMS
-          cat > metadata.env <<'EOF'
-source_node=${source_node}
-target_node=${TARGET_NODE}
-source_pod_uid=${source_pod_uid}
-checkpoint_uri=${checkpoint_uri}
-data_uri=${data_uri}
-hami_gpu_uuid=${hami_gpu_uuid}
-nfs_server=${NFS_SERVER}
-nfs_export_path=${NFS_EXPORT_PATH}
-nfs_run_dir=${nfs_run_dir}
-tar_name=${tar_name}
-blob_name=${blob_name}
-EOF
+          {
+            printf '%s\n' 'source_node=${source_node}'
+            printf '%s\n' 'target_node=${TARGET_NODE}'
+            printf '%s\n' 'source_pod_uid=${source_pod_uid}'
+            printf '%s\n' 'checkpoint_uri=${checkpoint_uri}'
+            printf '%s\n' 'data_uri=${data_uri}'
+            printf '%s\n' 'hami_gpu_uuid=${hami_gpu_uuid}'
+            printf '%s\n' 'nfs_server=${NFS_SERVER}'
+            printf '%s\n' 'nfs_export_path=${NFS_EXPORT_PATH}'
+            printf '%s\n' 'nfs_run_dir=${nfs_run_dir}'
+            printf '%s\n' 'tar_name=${tar_name}'
+            printf '%s\n' 'blob_name=${blob_name}'
+          } > metadata.env
           ls -lh
           cat SHA256SUMS
       securityContext:
