@@ -1,0 +1,139 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${INFERENCE_POD_NAME}
+  namespace: ${EXPERIMENT_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: hami-selective-cr
+    experiment.gpu-cr/role: inference-overhead-target
+    experiment.gpu-cr/model: ${INFERENCE_MODEL_SAFE_NAME}
+  annotations:
+    experiment.gpu-cr/checkpoint-target: "true"
+spec:
+  schedulerName: hami-scheduler
+  restartPolicy: Never
+  serviceAccountName: hami-selective-cr-runner
+  containers:
+    - name: inference
+      image: ${INFERENCE_IMAGE}
+      imagePullPolicy: IfNotPresent
+      command: ["/bin/bash", "-lc"]
+      args:
+        - |
+          set -Eeuo pipefail
+          if [ "${INFERENCE_PIP_INSTALL}" = "true" ]; then
+            python -m pip install --no-cache-dir transformers accelerate sentencepiece protobuf
+          fi
+          cat >/tmp/hami_inference_loop.py <<'PY'
+          import os
+          import sys
+          import time
+          import torch
+          from transformers import AutoModelForCausalLM, AutoTokenizer
+
+          model_id = os.environ["INFERENCE_MODEL_ID"]
+          model_path = os.environ["INFERENCE_MODEL_PATH"]
+          prompt = os.environ.get("INFERENCE_PROMPT", "The future of GPU checkpoint restore is")
+          max_new_tokens = int(os.environ.get("INFERENCE_MAX_NEW_TOKENS", "24"))
+          sleep_s = float(os.environ.get("INFERENCE_SLEEP_SECONDS", "0.2"))
+
+          print(f"[infer] loading model_id={model_id} path={model_path}", flush=True)
+          tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
+          if tokenizer.pad_token is None and tokenizer.eos_token is not None:
+            tokenizer.pad_token = tokenizer.eos_token
+          model = AutoModelForCausalLM.from_pretrained(
+              model_path,
+              local_files_only=True,
+              torch_dtype=torch.float16,
+          ).to("cuda")
+          model.eval()
+          inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
+          print("[infer] model loaded; starting steady inference loop", flush=True)
+
+          iteration = 0
+          with torch.inference_mode():
+            while True:
+              started = time.time()
+              outputs = model.generate(
+                  **inputs,
+                  max_new_tokens=max_new_tokens,
+                  do_sample=False,
+                  pad_token_id=tokenizer.pad_token_id,
+              )
+              torch.cuda.synchronize()
+              elapsed = time.time() - started
+              used = torch.cuda.memory_allocated() // (1024 * 1024)
+              reserved = torch.cuda.memory_reserved() // (1024 * 1024)
+              print(
+                  f"[infer] model={model_id} iteration={iteration} latency_s={elapsed:.4f} "
+                  f"cuda_allocated_mb={used} cuda_reserved_mb={reserved} tokens={outputs.shape[-1]}",
+                  flush=True,
+              )
+              iteration += 1
+              time.sleep(sleep_s)
+          PY
+          export LD_PRELOAD=/opt/gpu-cr/libgcr-interceptor.so
+          exec python /tmp/hami_inference_loop.py
+      env:
+        - name: INFERENCE_MODEL_ID
+          value: ${INFERENCE_MODEL_ID}
+        - name: INFERENCE_MODEL_PATH
+          value: /models/${INFERENCE_MODEL_RELATIVE_PATH}
+        - name: INFERENCE_PIP_INSTALL
+          value: "${INFERENCE_PIP_INSTALL}"
+        - name: INFERENCE_MAX_NEW_TOKENS
+          value: "${INFERENCE_MAX_NEW_TOKENS}"
+        - name: INFERENCE_SLEEP_SECONDS
+          value: "${INFERENCE_SLEEP_SECONDS}"
+        - name: GCR_VMM_ALLOC
+          value: "1"
+        - name: GCR_HOME
+          value: /opt/gpu-cr
+        - name: GCR_POD_UID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        - name: GCR_CONTROL_DIR
+          value: /var/lib/gpu-cr/run
+        - name: GCR_DATA_DIR
+          value: ${GCR_DATA_DIR}
+      volumeMounts:
+        - name: model-store
+          mountPath: /models
+          readOnly: true
+        - name: gpu-cr-lib
+          mountPath: /opt/gpu-cr
+          readOnly: true
+        - name: gpu-cr-run
+          mountPath: /var/lib/gpu-cr/run
+        - name: gcr-checkpoint
+          mountPath: /var/lib/gcr-checkpoint
+        - name: gcr-data
+          mountPath: /var/lib/gcr-data
+      resources:
+        limits:
+          nvidia.com/gpu: "1"
+          nvidia.com/gpumem: "${INFERENCE_GPU_MEMORY_MB}"
+          nvidia.com/gpucores: "${INFERENCE_GPU_CORE_PERCENT}"
+  volumes:
+    - name: model-store
+      nfs:
+        server: ${MODEL_NFS_SERVER}
+        path: ${MODEL_NFS_EXPORT_PATH}/models
+        readOnly: true
+    - name: gpu-cr-lib
+      hostPath:
+        path: ${GPU_CR_LIB_HOST_PATH}
+        type: Directory
+    - name: gpu-cr-run
+      hostPath:
+        path: ${GCR_CONTROL_DIR}
+        type: DirectoryOrCreate
+    - name: gcr-checkpoint
+      hostPath:
+        path: ${CHECKPOINT_STORAGE_PATH}
+        type: DirectoryOrCreate
+    - name: gcr-data
+      hostPath:
+        path: ${GCR_DATA_DIR}
+        type: DirectoryOrCreate

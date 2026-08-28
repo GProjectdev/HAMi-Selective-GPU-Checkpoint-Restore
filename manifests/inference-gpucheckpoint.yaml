@@ -1,0 +1,18 @@
+apiVersion: gpu-cr.io/v1alpha1
+kind: GPUCheckpoint
+metadata:
+  name: ${INFERENCE_CHECKPOINT_NAME}
+  namespace: ${EXPERIMENT_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: hami-selective-cr
+    experiment.gpu-cr/role: inference-overhead-checkpoint
+    experiment.gpu-cr/model: ${INFERENCE_MODEL_SAFE_NAME}
+spec:
+  workloadRef:
+    kind: Pod
+    namespace: ${EXPERIMENT_NAMESPACE}
+    name: ${INFERENCE_POD_NAME}
+    container: inference
+  storage:
+    type: ${CHECKPOINT_STORAGE_TYPE}
+    path: ${CHECKPOINT_STORAGE_PATH}
