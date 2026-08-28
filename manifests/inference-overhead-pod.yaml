@@ -100,6 +100,14 @@ spec:
           value: /var/lib/gpu-cr/run
         - name: GCR_DATA_DIR
           value: ${GCR_DATA_DIR}
+        - name: GCR_REMOTE_SINK
+          value: "${GCR_REMOTE_SINK}"
+        - name: GCR_REMOTE_HOST
+          value: "${GCR_REMOTE_HOST}"
+        - name: GCR_REMOTE_PORT
+          value: "${GCR_REMOTE_PORT}"
+        - name: GCR_REMOTE_REQUIRED
+          value: "${GCR_REMOTE_REQUIRED}"
       volumeMounts:
         - name: model-store
           mountPath: /models
