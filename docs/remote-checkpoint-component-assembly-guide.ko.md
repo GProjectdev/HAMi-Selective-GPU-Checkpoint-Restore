@@ -212,7 +212,159 @@ kubectl -n hami-selective-cr get gpucheckpoint hami-infer-gpt2-checkpoint -o jso
 echo inference > .state/last-checkpoint-container
 ```
 
-## 7. 1/2/3차 검증 실행
+## 7. GPU Data Buffer remote memory(tmpfs) 검증
+
+Component assembly 검증 전에, GPU memory data buffer가 실제로 remote server memory에 도착하는지도 함께 확인할 수 있다. 이 검증은 `.blob` 파일을 복사하는 실험이 아니라, GCR interceptor가 checkpoint 중 GPU memory를 host staging buffer로 D2H copy한 직후 그 chunk를 remote TCP receiver로 보내는지 확인하는 실험이다.
+
+구조는 다음과 같다.
+
+```text
+Source Worker
+  GPU memory
+    ↓ D2H copy
+  GCR host staging buffer
+    ├─ 기존 local data.blob
+    └─ remote TCP receiver, 예: 10.178.0.14:19092
+
+Receiver Server
+  Python receiver process memory
+  summary file: /dev/shm/gcr-gpt2-remote-summary.env
+```
+
+Receiver server, 예: `10.178.0.14`, 에서 receiver를 먼저 실행한다.
+
+```bash
+cd ~/K8s-Native-Fast-GPU-Checkpoint-Restore-System
+
+python3 tools/gcr_remote_memory_receiver.py \
+  --host 0.0.0.0 \
+  --port 19092 \
+  --summary /dev/shm/gcr-gpt2-remote-summary.env \
+  --hold-seconds 300
+```
+
+`/dev/shm`은 tmpfs이므로 receiver summary file은 disk가 아니라 memory-backed filesystem에 기록된다. 수신 payload 자체도 receiver process memory에 유지된다.
+
+Receiver server에서 tmpfs 크기를 확인하려면 다음을 실행한다.
+
+```bash
+df -h /dev/shm
+free -h
+```
+
+Source Worker에는 remote sink가 포함된 GCR interceptor가 설치되어 있어야 한다.
+
+```bash
+cd ~/K8s-Native-Fast-GPU-Checkpoint-Restore-System
+git switch feature/gcr-remote-memory-sink
+make -C interceptor clean all
+sudo install -m 0755 interceptor/libgcr-interceptor.so /var/lib/gpu-cr/lib/libgcr-interceptor.so
+```
+
+Kubernetes DaemonSet이 interceptor를 다시 덮어쓰는 구조라면, node-agent image도 같은 브랜치 기준으로 다시 빌드/배포해야 한다.
+
+Master Node에서 gpt2 inference Pod를 remote sink 활성화 상태로 배포한다.
+
+```bash
+cd ~/HAMi-Selective-GPU-Checkpoint-Restore
+
+GCR_REMOTE_SINK=tcp-mirror \
+GCR_REMOTE_HOST=10.178.0.14 \
+GCR_REMOTE_PORT=19092 \
+GCR_REMOTE_REQUIRED=false \
+bash ./scripts/13-deploy-inference-overhead-workload.sh \
+  --model gpt2 \
+  --yes
+```
+
+그 다음 checkpoint를 1회 수행한다.
+
+```bash
+bash ./scripts/14-run-checkpoint-overhead-benchmark.sh \
+  --model gpt2 \
+  --baseline-seconds 60 \
+  --post-seconds 60 \
+  --sample-interval-seconds 2 \
+  --repeat 1 \
+  --yes
+```
+
+성공 기준은 다음과 같다.
+
+Source Pod 로그:
+
+```bash
+kubectl -n hami-selective-cr logs hami-infer-gpt2 --tail=200 | grep -E 'gcr.*remote|gcr.*freeze'
+```
+
+예상 로그:
+
+```text
+[gcr][remote] connected sink=tcp-mirror 10.178.0.14:19092
+[gcr][remote] sent <bytes> bytes in <chunks> chunks fnv64=0x...
+[gcr][engine] freeze: <segs> segs, <bytes> bytes -> external blob
+```
+
+Receiver server 로그:
+
+```text
+begin expected_total_bytes=<bytes> advertised_segments=<segments>
+end sender_chunks=<chunks> sender_bytes=<bytes> received_chunks=<chunks> received_bytes=<bytes> ... fnv64=0x... sender_fnv64=0x...
+```
+
+Receiver summary 확인:
+
+```bash
+cat /dev/shm/gcr-gpt2-remote-summary.env
+```
+
+성공 판단은 다음 조건을 모두 만족해야 한다.
+
+```text
+1. receiver가 source worker 연결을 accepted 한다.
+2. sender_bytes와 received_bytes가 동일하다.
+3. sender_chunks와 received_chunks가 동일하다.
+4. receiver fnv64와 sender_fnv64가 동일하다.
+5. hami-infer-gpt2 Pod가 checkpoint 후에도 Running 상태를 유지한다.
+```
+
+실제 성공 예시는 다음과 같다.
+
+```text
+expected_total_bytes=304087040
+advertised_segments=19
+sender_chunks=19
+sender_bytes=304087040
+received_chunks=19
+received_bytes=304087040
+duration_s=38.122120
+throughput_mib_s=7.607
+fnv64=0x64b15facd6cc6a0e
+sender_fnv64=0x64b15facd6cc6a0e
+rss_mib=358.2
+```
+
+이 결과는 다음을 의미한다.
+
+```text
+GCR selective interception이 잡은 GPU memory data buffer가 checkpoint 중 remote server의 memory-resident receiver로 전송되었고,
+송신 byte 수와 수신 byte 수, 송신 checksum과 수신 checksum이 일치했다.
+따라서 GPU memory payload는 local .blob 파일로만 남기는 것이 아니라 remote server memory로도 직접 보낼 수 있다.
+```
+
+주의할 점은 현재 모드가 `tcp-mirror`라는 것이다.
+
+```text
+현재 검증:
+GPU memory data buffer를 remote memory receiver로 보내면서 기존 local .blob도 유지한다.
+
+아직 검증하지 않은 것:
+local .blob 없이 remote memory만으로 restore까지 수행하는 end-to-end 경로
+```
+
+따라서 이 섹션은 “GPU Data Buffer를 remote server memory/tmpfs 기반 receiver로 보낼 수 있는가?”에 대한 검증이고, 다음 섹션은 “그 외 checkpoint 구성 파일을 receiver storage에 재현하고 tar로 조립할 수 있는가?”에 대한 검증이다.
+
+## 8. 1/2/3차 검증 실행
 
 Master Node에서 다음을 실행한다.
 
@@ -242,7 +394,7 @@ hami-remote-components-pack-*
 Remote checkpoint component assembly validated.
 ```
 
-## 8. 결과 확인
+## 9. 결과 확인
 
 Master Node에서 결과 디렉터리를 확인한다.
 
@@ -281,7 +433,7 @@ tar -tf rebuilt-*.tar | head
 6. tar -tf rebuilt-*.tar 명령으로 spec.dump, config.dump, checkpoint/*.img 등이 보인다.
 ```
 
-## 9. 실제 성공 예시
+## 10. 실제 성공 예시
 
 실제 gpt2 checkpoint 구성요소 검증 결과 예시는 다음과 같다.
 
@@ -323,7 +475,7 @@ rebuilt-checkpoint-hami-infer-gpt2_hami-selective-cr-inference-....tar
 
 이 결과는 receiver server에서 checkpoint tar를 다시 조립했다는 직접 증거로 사용할 수 있다.
 
-## 10. 교수님께 설명할 때의 핵심 문장
+## 11. 교수님께 설명할 때의 핵심 문장
 
 PPT 또는 보고서에는 다음과 같이 정리할 수 있다.
 
@@ -345,7 +497,7 @@ SHA256 무결성 검증 후 receiver 측에서 다시 checkpoint tar를 조립�
 source-side tar 생성을 완전히 제거하려면 CRI-O checkpoint 경로에서 구성 파일을 생성 즉시 remote sender로 넘기는 추가 구현이 필요하다.
 ```
 
-## 11. Receiver 조립 로직을 직접 구현할 때 필요한 기능
+## 12. Receiver 조립 로직을 직접 구현할 때 필요한 기능
 
 나중에 직접 receiver-side assembler를 구현한다면 최소 기능은 다음과 같다.
 
@@ -369,7 +521,7 @@ sha256sum rebuilt-checkpoint.tar > REBUILT_TAR_SHA256SUM
 tar -tf rebuilt-checkpoint.tar | head
 ```
 
-## 12. 문제 발생 시 확인
+## 13. 문제 발생 시 확인
 
 ### helper Pod가 잘못된 node에 뜨는 경우
 
@@ -426,7 +578,7 @@ kubectl -n hami-selective-cr delete pod \
   --ignore-not-found=true
 ```
 
-## 13. 다음 개발 방향
+## 14. 다음 개발 방향
 
 이번 검증은 receiver-side 조립 가능성을 확인하는 단계이다. 이후 실제 시스템으로 발전시키려면 다음 구조가 필요하다.
 
