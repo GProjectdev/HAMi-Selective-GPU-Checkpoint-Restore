@@ -52,6 +52,8 @@ export EXPERIMENT_NAMESPACE INFERENCE_MODEL_SAFE_NAME INFERENCE_POD_NAME INFEREN
 [[ "${DRY_RUN}" == "true" ]] && die "This benchmark needs live sampling and cannot run with --dry-run."
 kubectl -n "${EXPERIMENT_NAMESPACE}" get pod "${POD_NAME}" >/dev/null
 kubectl -n "${EXPERIMENT_NAMESPACE}" wait --for=condition=Ready "pod/${POD_NAME}" --timeout=30s
+WORKLOAD_NODE="$(kubectl -n "${EXPERIMENT_NAMESPACE}" get pod "${POD_NAME}" -o jsonpath='{.spec.nodeName}')"
+[[ -n "${WORKLOAD_NODE}" ]] || die "Pod ${POD_NAME} is Ready but .spec.nodeName is empty."
 
 is_inference_steady() {
   kubectl -n "${EXPERIMENT_NAMESPACE}" exec "${POD_NAME}" -- sh -c 'test -f /tmp/hami_inference_ready' >/dev/null 2>&1 && return 0
@@ -86,7 +88,14 @@ sample_once() {
     kubectl -n "${GPU_CR_NAMESPACE:-gpu-cr-system}" top pod 2>&1 || true
     printf '=== %s repeat=%s phase=%s hami-top ===\n' "${ts}" "${repeat_id}" "${phase}"
     kubectl -n kube-system top pod 2>&1 | grep -Ei 'hami|nvidia-device' || true
+    printf '=== %s repeat=%s phase=%s workload-node-top ===\n' "${ts}" "${repeat_id}" "${phase}"
+    kubectl top node "${WORKLOAD_NODE}" 2>&1 || true
   } >> "${RESULT_DIR}/k8s-top-samples.txt"
+
+  while read -r node cpu cpu_percent memory memory_percent rest; do
+    [[ -n "${node}" && "${node}" != "error:" ]] || continue
+    printf '%s,%s,%s,%s,%s,%s,%s,%s\n' "${ts}" "${repeat_id}" "${phase}" "${node}" "${cpu}" "${cpu_percent}" "${memory}" "${memory_percent}" >> "${RESULT_DIR}/node-resource-samples.csv"
+  done < <(kubectl top node "${WORKLOAD_NODE}" --no-headers 2>/dev/null || true)
 
   while read -r pod container cpu memory rest; do
     [[ -n "${pod}" && "${pod}" != "error:" ]] || continue
@@ -128,6 +137,7 @@ sample_for() {
 }
 
 printf 'timestamp_utc,repeat,phase,gpu_timestamp,gpu_uuid,gpu_util_percent,mem_util_percent,gpu_mem_used_mb,gpu_mem_free_mb,power_w\n' > "${RESULT_DIR}/gpu-samples.csv"
+printf 'timestamp_utc,repeat,phase,node,cpu,cpu_percent,memory,memory_percent\n' > "${RESULT_DIR}/node-resource-samples.csv"
 printf 'timestamp_utc,repeat,phase,pod,container,cpu,memory\n' > "${RESULT_DIR}/pod-resource-samples.csv"
 printf 'timestamp_utc,repeat,phase,namespace,pod,cpu,memory\n' > "${RESULT_DIR}/control-resource-samples.csv"
 printf 'repeat,duration_ms,observed_node,checkpoint_count,checkpoint_path\n' > "${RESULT_DIR}/checkpoint-durations.csv"
@@ -181,6 +191,7 @@ capture final-logs kubectl -n "${EXPERIMENT_NAMESPACE}" logs "${POD_NAME}" --tai
   printf '# Checkpoint Overhead Benchmark\n\n'
   printf -- '- model: %s\n' "${MODEL}"
   printf -- '- pod: %s\n' "${POD_NAME}"
+  printf -- '- workload node: %s\n' "${WORKLOAD_NODE}"
   printf -- '- baseline window: %ss\n' "${BASELINE_SECONDS}"
   printf -- '- post window: %ss\n' "${POST_SECONDS}"
   printf -- '- sample interval: %ss\n' "${SAMPLE_INTERVAL_SECONDS}"
@@ -191,6 +202,7 @@ capture final-logs kubectl -n "${EXPERIMENT_NAMESPACE}" logs "${POD_NAME}" --tai
   printf '```\n\n'
   printf '## Raw Evidence\n\n'
   printf -- '- gpu-samples.csv\n'
+  printf -- '- node-resource-samples.csv\n'
   printf -- '- pod-resource-samples.csv\n'
   printf -- '- control-resource-samples.csv\n'
   printf -- '- k8s-top-samples.txt\n'

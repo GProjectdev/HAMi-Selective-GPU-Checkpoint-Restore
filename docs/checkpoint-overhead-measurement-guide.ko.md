@@ -12,6 +12,7 @@
 측정 대상 overhead는 다음과 같다.
 
 - checkpoint 수행 시간
+- checkpoint 전후 Worker Node 전체 CPU/Memory 사용량 변화
 - checkpoint 전후 Pod CPU/Memory 사용량 변화
 - checkpoint 전후 GPU utilization 변화
 - checkpoint 전후 GPU memory 사용량 변화
@@ -55,6 +56,7 @@ results/<timestamp>-checkpoint-overhead-<model>/
   summary.md
   checkpoint-durations.csv
   gpu-samples.csv
+  node-resource-samples.csv
   pod-resource-samples.csv
   control-resource-samples.csv
   k8s-top-samples.txt
@@ -186,8 +188,17 @@ timestamp_utc,repeat,phase,gpu_timestamp,gpu_uuid,gpu_util_percent,mem_util_perc
 - `checkpoint`: checkpoint 수행 중 구간
 - `post`: checkpoint 완료 이후 구간
 
+`node-resource-samples.csv`는 inference Pod가 실행 중인 Worker Node의 전체 CPU/Memory 사용량을 저장한다.
+
+```csv
+timestamp_utc,repeat,phase,node,cpu,cpu_percent,memory,memory_percent
+```
+
+이 값은 checkpoint로 인해 node 전체에서 추가로 사용된 CPU/Memory를 보기 위한 기준값이다.
+
 `k8s-top-samples.txt`는 다음 Kubernetes 자원 사용량을 함께 저장한다.
 
+- inference Pod가 실행 중인 Worker Node 전체 CPU/Memory
 - inference Pod container CPU/Memory
 - `gpu-cr-system` namespace의 GPU-CR component CPU/Memory
 - `kube-system` namespace의 HAMi/NVIDIA plugin 관련 Pod CPU/Memory
@@ -195,6 +206,7 @@ timestamp_utc,repeat,phase,gpu_timestamp,gpu_uuid,gpu_util_percent,mem_util_perc
 동일한 내용 중 분석하기 쉬운 값은 다음 CSV에도 저장된다.
 
 ```text
+node-resource-samples.csv
 pod-resource-samples.csv
 control-resource-samples.csv
 ```
@@ -207,6 +219,8 @@ control-resource-samples.csv
 
 | 항목 | 의미 |
 |---|---|
+| baseline 평균 Node CPU/Memory | checkpoint 전 Worker Node 전체 자원 사용 |
+| checkpoint 구간 Node CPU/Memory 증가 | checkpoint가 node 전체에 추가한 CPU/Memory overhead |
 | baseline 평균 GPU utilization | checkpoint 전 inference 부하 |
 | checkpoint 구간 GPU utilization 변화 | checkpoint가 GPU 실행에 준 영향 |
 | baseline 평균 Pod CPU/Memory | checkpoint 전 workload 자원 사용 |
