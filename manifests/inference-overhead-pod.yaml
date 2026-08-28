@@ -24,6 +24,10 @@ spec:
           if [ "${INFERENCE_PIP_INSTALL}" = "true" ]; then
             python -m pip install --no-cache-dir ${INFERENCE_PIP_PACKAGES}
           fi
+          python - <<'PY'
+          import transformers
+          print(f"[infer] transformers version={transformers.__version__}", flush=True)
+          PY
           cat >/tmp/hami_inference_loop.py <<'PY'
           import os
           import sys
