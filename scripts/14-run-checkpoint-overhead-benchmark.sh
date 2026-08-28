@@ -56,12 +56,12 @@ kubectl -n "${EXPERIMENT_NAMESPACE}" wait --for=condition=Ready "pod/${POD_NAME}
 log "Waiting for inference steady-state log from ${POD_NAME}"
 steady_deadline=$((SECONDS + ${INFERENCE_READY_TIMEOUT_SECONDS:-900}))
 while (( SECONDS < steady_deadline )); do
-  if kubectl -n "${EXPERIMENT_NAMESPACE}" logs "${POD_NAME}" --tail=80 2>/dev/null | grep -q 'starting steady inference loop'; then
+  if kubectl -n "${EXPERIMENT_NAMESPACE}" logs "${POD_NAME}" --tail=200 2>/dev/null | grep -Eq 'starting steady inference loop|\[infer\].*iteration=[0-9]+'; then
     break
   fi
   sleep 5
 done
-if ! kubectl -n "${EXPERIMENT_NAMESPACE}" logs "${POD_NAME}" --tail=120 2>/dev/null | grep -q 'starting steady inference loop'; then
+if ! kubectl -n "${EXPERIMENT_NAMESPACE}" logs "${POD_NAME}" --tail=240 2>/dev/null | grep -Eq 'starting steady inference loop|\[infer\].*iteration=[0-9]+'; then
   capture not-steady-logs kubectl -n "${EXPERIMENT_NAMESPACE}" logs "${POD_NAME}" --tail=200
   die "Inference workload did not reach steady-state. Check ${RESULT_DIR}/not-steady-logs.txt"
 fi
