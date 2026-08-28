@@ -49,6 +49,7 @@ spec:
           model.eval()
           inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
           print("[infer] model loaded; starting steady inference loop", flush=True)
+          open("/tmp/hami_inference_ready", "w").write(str(time.time()) + "\n")
 
           iteration = 0
           with torch.inference_mode():

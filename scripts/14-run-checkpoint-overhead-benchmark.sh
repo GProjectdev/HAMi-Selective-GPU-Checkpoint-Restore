@@ -53,18 +53,26 @@ export EXPERIMENT_NAMESPACE INFERENCE_MODEL_SAFE_NAME INFERENCE_POD_NAME INFEREN
 kubectl -n "${EXPERIMENT_NAMESPACE}" get pod "${POD_NAME}" >/dev/null
 kubectl -n "${EXPERIMENT_NAMESPACE}" wait --for=condition=Ready "pod/${POD_NAME}" --timeout=30s
 
-log "Waiting for inference steady-state log from ${POD_NAME}"
+is_inference_steady() {
+  kubectl -n "${EXPERIMENT_NAMESPACE}" exec "${POD_NAME}" -- sh -c 'test -f /tmp/hami_inference_ready' >/dev/null 2>&1 && return 0
+  kubectl --request-timeout=10s -n "${EXPERIMENT_NAMESPACE}" logs "${POD_NAME}" --tail=500 2>/dev/null | grep -Eq 'starting steady inference loop|\[infer\].*iteration=[0-9]+' && return 0
+  return 1
+}
+
+log "Waiting for inference steady-state evidence from ${POD_NAME}"
 steady_deadline=$((SECONDS + ${INFERENCE_READY_TIMEOUT_SECONDS:-900}))
 while (( SECONDS < steady_deadline )); do
-  if kubectl -n "${EXPERIMENT_NAMESPACE}" logs "${POD_NAME}" --tail=200 2>/dev/null | grep -Eq 'starting steady inference loop|\[infer\].*iteration=[0-9]+'; then
+  if is_inference_steady; then
     break
   fi
   sleep 5
 done
-if ! kubectl -n "${EXPERIMENT_NAMESPACE}" logs "${POD_NAME}" --tail=240 2>/dev/null | grep -Eq 'starting steady inference loop|\[infer\].*iteration=[0-9]+'; then
-  capture not-steady-logs kubectl -n "${EXPERIMENT_NAMESPACE}" logs "${POD_NAME}" --tail=200
+if ! is_inference_steady; then
+  capture not-steady-pod kubectl -n "${EXPERIMENT_NAMESPACE}" get pod "${POD_NAME}" -o yaml
+  capture not-steady-logs kubectl -n "${EXPERIMENT_NAMESPACE}" logs "${POD_NAME}" --tail=500
   die "Inference workload did not reach steady-state. Check ${RESULT_DIR}/not-steady-logs.txt"
 fi
+log "Inference steady-state evidence found for ${POD_NAME}"
 
 sample_once() {
   local phase="$1"
