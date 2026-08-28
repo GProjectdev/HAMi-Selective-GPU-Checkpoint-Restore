@@ -46,6 +46,7 @@ write_state last-checkpoint-uri "${restore_checkpoint_uri}"
 write_state last-checkpoint-data-uri "${restore_data_uri}"
 write_state last-checkpoint-source-pod-uid "${source_pod_uid}"
 write_state last-checkpoint-observed-node "${observed_node}"
+write_state last-checkpoint-container "selective-target"
 write_state last-hami-gpu-allocation "${hami_allocation}"
 write_state last-hami-gpu-uuid "${hami_gpu_uuid}"
 

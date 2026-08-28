@@ -32,6 +32,7 @@ state_dir="${REPO_ROOT}/${STATE_ROOT#./}"
 checkpoint_path="$(cat "${state_dir}/last-checkpoint-path" 2>/dev/null || true)"
 source_pod_uid="$(cat "${state_dir}/last-checkpoint-source-pod-uid" 2>/dev/null || true)"
 source_node="$(cat "${state_dir}/last-checkpoint-observed-node" 2>/dev/null || true)"
+checkpoint_container="$(cat "${state_dir}/last-checkpoint-container" 2>/dev/null || echo selective-target)"
 hami_gpu_uuid="$(cat "${state_dir}/last-hami-gpu-uuid" 2>/dev/null || true)"
 
 [[ -n "${checkpoint_path}" ]] || die "Missing .state/last-checkpoint-path. Run a GPUCheckpoint first."
@@ -56,7 +57,7 @@ tar_name="$(basename "${checkpoint_path}")"
 rebuilt_tar_name="rebuilt-${tar_name}"
 blob_path="${checkpoint_path%.tar}.blob"
 blob_name="$(basename "${blob_path}")"
-hami_cache_source="/usr/local/vgpu/containers/${source_pod_uid}_selective-target"
+hami_cache_source="/usr/local/vgpu/containers/${source_pod_uid}_${checkpoint_container}"
 
 cleanup_helper() {
   kubectl -n "${EXPERIMENT_NAMESPACE}" delete pod "${stage_pod}" "${verify_pod}" "${pack_pod}" --ignore-not-found=true --wait=false >/dev/null 2>&1 || true

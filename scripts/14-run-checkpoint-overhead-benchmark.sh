@@ -181,9 +181,20 @@ for repeat_id in $(seq 1 "${REPEAT}"); do
   checkpoint_path="$(kubectl -n "${EXPERIMENT_NAMESPACE}" get gpucheckpoint "${INFERENCE_CHECKPOINT_NAME}" -o jsonpath='{.status.lastCheckpointPath}' 2>/dev/null || true)"
   checkpoint_count="$(kubectl -n "${EXPERIMENT_NAMESPACE}" get gpucheckpoint "${INFERENCE_CHECKPOINT_NAME}" -o jsonpath='{.status.checkpointCount}' 2>/dev/null || true)"
   observed_node="$(kubectl -n "${EXPERIMENT_NAMESPACE}" get gpucheckpoint "${INFERENCE_CHECKPOINT_NAME}" -o jsonpath='{.status.observedNode}' 2>/dev/null || true)"
+  source_pod_uid="$(kubectl -n "${EXPERIMENT_NAMESPACE}" get gpucheckpoint "${INFERENCE_CHECKPOINT_NAME}" -o jsonpath='{.status.podUID}' 2>/dev/null || true)"
+  hami_allocation="$(kubectl -n "${EXPERIMENT_NAMESPACE}" get pod "${POD_NAME}" -o jsonpath='{.metadata.annotations.hami\.io/vgpu-devices-allocated}' 2>/dev/null || true)"
+  hami_gpu_uuid="$(awk -F, '{print $1}' <<<"${hami_allocation}")"
   duration_ms="$(( (end_ns - start_ns) / 1000000 ))"
   printf '%s,%s,%s,%s,%s\n' "${repeat_id}" "${duration_ms}" "${observed_node}" "${checkpoint_count:-}" "${checkpoint_path}" >> "${RESULT_DIR}/checkpoint-durations.csv"
   if [[ -n "${checkpoint_path}" ]]; then
+    write_state last-checkpoint-path "${checkpoint_path}"
+    write_state last-checkpoint-uri "hostpath://${checkpoint_path}"
+    write_state last-checkpoint-data-uri "hostpath://${checkpoint_path%.tar}.blob"
+    write_state last-checkpoint-source-pod-uid "${source_pod_uid}"
+    write_state last-checkpoint-observed-node "${observed_node}"
+    write_state last-checkpoint-container "inference"
+    write_state last-hami-gpu-allocation "${hami_allocation}"
+    write_state last-hami-gpu-uuid "${hami_gpu_uuid}"
     {
       printf '=== repeat=%s checkpoint artifacts ===\n' "${repeat_id}"
       kubectl -n "${EXPERIMENT_NAMESPACE}" exec "${POD_NAME}" -- \
