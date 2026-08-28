@@ -63,6 +63,8 @@ results/<timestamp>-checkpoint-overhead-<model>/
   checkpoint-artifact-sizes.txt
   gpucheckpoint-repeat-*.txt
   logs-after-repeat-*.txt
+  overhead-summary.csv
+  overhead-summary.md
 ```
 
 ## 4. 설정값
@@ -229,9 +231,69 @@ control-resource-samples.csv
 | checkpoint duration | checkpoint 완료까지 걸린 시간 |
 | checkpoint tar/blob 크기 | 저장/전송 overhead |
 
-## 9. 주의 사항
+## 9. 정확한 차이 계산 방법
+
+원자료 CSV만 보면 baseline, checkpoint, post 구간의 값이 시간순으로 나열되기 때문에 발표 자료에 넣을 수 있는 “정확히 얼마 차이”를 바로 보기 어렵다. 따라서 benchmark가 끝나면 다음 두 파일이 자동으로 생성된다.
+
+```text
+overhead-summary.csv
+overhead-summary.md
+```
+
+`overhead-summary.csv`는 각 metric에 대해 다음 값을 계산한다.
+
+```csv
+metric,scope,unit,baseline_samples,baseline_avg,baseline_max,checkpoint_samples,checkpoint_avg,checkpoint_max,checkpoint_delta_avg,checkpoint_delta_avg_percent,post_samples,post_avg,post_delta_avg,post_delta_avg_percent
+```
+
+핵심 해석 기준은 다음과 같다.
+
+| 컬럼 | 의미 |
+|---|---|
+| `baseline_avg` | checkpoint 전 steady-state 평균 |
+| `checkpoint_avg` | checkpoint가 실행되는 동안의 평균 |
+| `checkpoint_delta_avg` | `checkpoint_avg - baseline_avg` |
+| `checkpoint_delta_avg_percent` | baseline 대비 checkpoint 평균 증가율 |
+| `post_avg` | checkpoint 완료 이후 평균 |
+| `post_delta_avg` | `post_avg - baseline_avg` |
+| `post_delta_avg_percent` | baseline 대비 post 평균 증가율 |
+
+이미 생성된 결과 디렉터리에 대해서도 다시 계산할 수 있다.
+
+```bash
+bash ./scripts/15-summarize-checkpoint-overhead-results.sh \
+  --result-dir results/20260828T052706Z-checkpoint-overhead-gpt2
+```
+
+발표에서는 보통 다음 값을 우선 제시하면 된다.
+
+| 항목 | 발표용 값 |
+|---|---|
+| Worker Node CPU overhead | `metric=node:cpu`의 `checkpoint_delta_avg`, `checkpoint_delta_avg_percent` |
+| Worker Node Memory overhead | `metric=node:memory`의 `checkpoint_delta_avg`, `checkpoint_delta_avg_percent` |
+| GPU memory 변화 | `metric=gpu:gpu_mem_used_mb`의 `checkpoint_delta_avg`, `post_delta_avg` |
+| GPU utilization 변화 | `metric=gpu:gpu_util_percent`의 `checkpoint_delta_avg` |
+| GPU-CR node-agent overhead | `metric=control-pod:cpu`, `metric=control-pod:memory` 중 `gpu-cr-node-agent-*` scope |
+| Checkpoint 시간 | `checkpoint-durations.csv`의 `duration_ms` |
+| Checkpoint 저장량 | `checkpoint-artifact-sizes.txt`의 `.tar`, `.blob` 크기 |
+
+주의할 점은 `gpu-samples.csv`에 `nvidia-smi-unavailable`이 포함될 수 있다는 것이다. 현재 GPU 샘플은 checkpoint 대상 Pod 내부에서 `nvidia-smi`를 실행하므로, checkpoint 중 Pod가 freeze되면 해당 순간의 GPU 샘플이 빠질 수 있다. 이 경우 GPU utilization의 checkpoint 순간 peak는 Worker Node에서 직접 실행하는 host-level `nvidia-smi` 샘플러로 보강해야 한다.
+
+## 10. 주의 사항
 
 `kubectl top`은 metrics-server가 있어야 동작한다. metrics-server가 없으면 `k8s-top-samples.txt`에 오류가 기록되지만 benchmark 자체는 계속 진행된다.
+
+Node-level CPU/Memory overhead가 핵심 측정값인 경우에는 metrics-server가 반드시 동작해야 한다. 기본값은 `REQUIRE_NODE_METRICS=true`이며, `kubectl top node <workload-node>`가 실패하면 benchmark를 중단하고 `node-resource-error.txt`에 원인을 저장한다.
+
+사전 확인 명령은 다음과 같다.
+
+```bash
+kubectl top node
+kubectl get apiservice v1beta1.metrics.k8s.io
+kubectl -n kube-system get pod | grep metrics
+```
+
+`kubectl top node`가 동작하지 않으면 `node-resource-samples.csv`에는 실제 Node CPU/Memory 측정값이 기록되지 않는다.
 
 `nvidia-smi` 값은 물리 GPU 단위 값이다. 같은 GPU에 다른 workload가 같이 실행 중이면 GPU utilization과 memory 값에 함께 반영된다. 따라서 순수한 checkpoint overhead를 보려면 같은 실험 조건에서 baseline, checkpoint, post 구간을 비교해야 한다.
 

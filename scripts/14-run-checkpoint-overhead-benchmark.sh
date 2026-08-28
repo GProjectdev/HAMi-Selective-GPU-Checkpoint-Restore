@@ -54,6 +54,16 @@ kubectl -n "${EXPERIMENT_NAMESPACE}" get pod "${POD_NAME}" >/dev/null
 kubectl -n "${EXPERIMENT_NAMESPACE}" wait --for=condition=Ready "pod/${POD_NAME}" --timeout=30s
 WORKLOAD_NODE="$(kubectl -n "${EXPERIMENT_NAMESPACE}" get pod "${POD_NAME}" -o jsonpath='{.spec.nodeName}')"
 [[ -n "${WORKLOAD_NODE}" ]] || die "Pod ${POD_NAME} is Ready but .spec.nodeName is empty."
+REQUIRE_NODE_METRICS="${REQUIRE_NODE_METRICS:-true}"
+
+node_top_probe="$(kubectl top node "${WORKLOAD_NODE}" --no-headers 2>&1 || true)"
+if [[ -z "${node_top_probe}" || "${node_top_probe}" == error:* ]]; then
+  printf '%s\n' "${node_top_probe:-kubectl top node returned no output}" > "${RESULT_DIR}/node-resource-error.txt"
+  if [[ "${REQUIRE_NODE_METRICS}" == "true" ]]; then
+    die "Node metrics are unavailable for ${WORKLOAD_NODE}. Check ${RESULT_DIR}/node-resource-error.txt, metrics-server, and metrics.k8s.io before running node-overhead measurements."
+  fi
+  log "WARN: Node metrics unavailable for ${WORKLOAD_NODE}; node-resource-samples.csv will contain unavailable markers."
+fi
 
 is_inference_steady() {
   kubectl -n "${EXPERIMENT_NAMESPACE}" exec "${POD_NAME}" -- sh -c 'test -f /tmp/hami_inference_ready' >/dev/null 2>&1 && return 0
@@ -96,6 +106,9 @@ sample_once() {
     [[ -n "${node}" && "${node}" != "error:" ]] || continue
     printf '%s,%s,%s,%s,%s,%s,%s,%s\n' "${ts}" "${repeat_id}" "${phase}" "${node}" "${cpu}" "${cpu_percent}" "${memory}" "${memory_percent}" >> "${RESULT_DIR}/node-resource-samples.csv"
   done < <(kubectl top node "${WORKLOAD_NODE}" --no-headers 2>/dev/null || true)
+  if ! kubectl top node "${WORKLOAD_NODE}" --no-headers >/dev/null 2>&1; then
+    printf '%s,%s,%s,%s,unavailable,unavailable,unavailable,unavailable\n' "${ts}" "${repeat_id}" "${phase}" "${WORKLOAD_NODE}" >> "${RESULT_DIR}/node-resource-samples.csv"
+  fi
 
   while read -r pod container cpu memory rest; do
     [[ -n "${pod}" && "${pod}" != "error:" ]] || continue
@@ -187,6 +200,8 @@ done
 capture final-pod kubectl -n "${EXPERIMENT_NAMESPACE}" get pod "${POD_NAME}" -o yaml
 capture final-logs kubectl -n "${EXPERIMENT_NAMESPACE}" logs "${POD_NAME}" --tail=240
 
+bash "${REPO_ROOT}/scripts/15-summarize-checkpoint-overhead-results.sh" --result-dir "${RESULT_DIR}"
+
 {
   printf '# Checkpoint Overhead Benchmark\n\n'
   printf -- '- model: %s\n' "${MODEL}"
@@ -207,8 +222,15 @@ capture final-logs kubectl -n "${EXPERIMENT_NAMESPACE}" logs "${POD_NAME}" --tai
   printf -- '- control-resource-samples.csv\n'
   printf -- '- k8s-top-samples.txt\n'
   printf -- '- checkpoint-artifact-sizes.txt\n'
+  printf -- '- overhead-summary.csv\n'
+  printf -- '- overhead-summary.md\n'
   printf -- '- gpucheckpoint-repeat-*.txt\n'
   printf -- '- logs-after-repeat-*.txt\n'
+  printf '\n'
+  if [[ -f "${RESULT_DIR}/overhead-summary.md" ]]; then
+    printf '## Calculated Overhead Deltas\n\n'
+    sed -n '/## Delta Table/,$p' "${RESULT_DIR}/overhead-summary.md"
+  fi
 } > "${RESULT_DIR}/summary.md"
 
 write_state "last-checkpoint-overhead-result-dir" "${RESULT_DIR}"
