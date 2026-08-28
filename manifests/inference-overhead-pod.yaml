@@ -22,7 +22,7 @@ spec:
         - |
           set -Eeuo pipefail
           if [ "${INFERENCE_PIP_INSTALL}" = "true" ]; then
-            python -m pip install --no-cache-dir transformers accelerate sentencepiece protobuf
+            python -m pip install --no-cache-dir ${INFERENCE_PIP_PACKAGES}
           fi
           cat >/tmp/hami_inference_loop.py <<'PY'
           import os
@@ -81,6 +81,8 @@ spec:
           value: /models/${INFERENCE_MODEL_RELATIVE_PATH}
         - name: INFERENCE_PIP_INSTALL
           value: "${INFERENCE_PIP_INSTALL}"
+        - name: INFERENCE_PIP_PACKAGES
+          value: "${INFERENCE_PIP_PACKAGES}"
         - name: INFERENCE_MAX_NEW_TOKENS
           value: "${INFERENCE_MAX_NEW_TOKENS}"
         - name: INFERENCE_SLEEP_SECONDS

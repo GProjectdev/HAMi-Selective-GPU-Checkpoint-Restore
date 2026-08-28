@@ -84,6 +84,14 @@ INFERENCE_IMAGE=pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime
 INFERENCE_PIP_INSTALL=true
 ```
 
+기본 pip 패키지는 PyTorch 2.4.1 이미지와 호환되도록 다음처럼 고정한다.
+
+```bash
+INFERENCE_PIP_PACKAGES="transformers==4.44.2 accelerate==0.34.2 sentencepiece protobuf"
+```
+
+최신 `transformers` 5.x 계열은 PyTorch 2.5 이상을 요구할 수 있으므로, `pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime` 이미지를 사용할 때는 위처럼 4.x 계열로 고정해야 한다.
+
 단, Worker Node 또는 Pod에서 인터넷 접근이 되지 않는 환경이라면 pip install이 실패할 수 있다. 이 경우 `torch`, `transformers`, `accelerate`, `sentencepiece`가 포함된 사전 빌드 image를 만들어 `INFERENCE_IMAGE`로 지정하는 방식이 좋다.
 
 ## 5. gpt2 측정 절차
