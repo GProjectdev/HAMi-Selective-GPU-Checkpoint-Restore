@@ -32,17 +32,59 @@ spec:
           import os
           import time
           import torch
-          from transformers import AutoModelForCausalLM, AutoTokenizer
 
           pod = os.environ.get("POD_NAME", "unknown")
           worker = os.environ.get("INTERFERENCE_WORKER", "unknown")
+          workload_kind = os.environ.get("INTERFERENCE_WORKLOAD_KIND", "model")
           model_id = os.environ["INFERENCE_MODEL_ID"]
           model_path = os.environ["INFERENCE_MODEL_PATH"]
           prompt = os.environ.get("INFERENCE_PROMPT", "Shared GPU checkpoint interference validation")
           max_new_tokens = int(os.environ.get("INFERENCE_MAX_NEW_TOKENS", "24"))
           sleep_s = float(os.environ.get("INFERENCE_SLEEP_SECONDS", "0.2"))
+          synthetic_alloc_mb = int(os.environ.get("SYNTHETIC_ALLOC_MB", "2048"))
+          synthetic_op_size = int(os.environ.get("SYNTHETIC_OP_SIZE", "4096"))
 
-          print(f"[interference] loading pod={pod} worker={worker} model={model_id} path={model_path}", flush=True)
+          if workload_kind == "synthetic":
+            print(
+                f"[interference] loading synthetic pod={pod} worker={worker} "
+                f"alloc_mb={synthetic_alloc_mb} op_size={synthetic_op_size}",
+                flush=True,
+            )
+            blocks = []
+            remaining = synthetic_alloc_mb
+            while remaining > 0:
+              block_mb = min(remaining, 256)
+              elems = block_mb * 1024 * 1024 // 2
+              blocks.append(torch.ones((elems,), device="cuda", dtype=torch.float16))
+              remaining -= block_mb
+            a = torch.randn((synthetic_op_size, synthetic_op_size), device="cuda", dtype=torch.float16)
+            b = torch.randn((synthetic_op_size, synthetic_op_size), device="cuda", dtype=torch.float16)
+            torch.cuda.synchronize()
+            open("/tmp/hami_interference_ready", "w").write(str(time.time()) + "\n")
+            print(f"[interference] ready pod={pod} worker={worker} workload=synthetic", flush=True)
+
+            iteration = 0
+            while True:
+              started = time.time()
+              c = a @ b
+              blocks[iteration % len(blocks)].add_(0.0001)
+              torch.cuda.synchronize()
+              elapsed = time.time() - started
+              allocated = torch.cuda.memory_allocated() // (1024 * 1024)
+              reserved = torch.cuda.memory_reserved() // (1024 * 1024)
+              print(
+                  f"[interference] ts={time.time():.6f} pod={pod} worker={worker} "
+                  f"workload=synthetic iteration={iteration} latency_s={elapsed:.6f} "
+                  f"ips={(1.0 / elapsed if elapsed > 0 else 0.0):.6f} "
+                  f"cuda_allocated_mb={allocated} cuda_reserved_mb={reserved} payload_mb={synthetic_alloc_mb}",
+                  flush=True,
+              )
+              iteration += 1
+              time.sleep(sleep_s)
+
+          from transformers import AutoModelForCausalLM, AutoTokenizer
+
+          print(f"[interference] loading pod={pod} worker={worker} workload=model model={model_id} path={model_path}", flush=True)
           tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
           if tokenizer.pad_token is None and tokenizer.eos_token is not None:
             tokenizer.pad_token = tokenizer.eos_token
@@ -73,7 +115,7 @@ spec:
               reserved = torch.cuda.memory_reserved() // (1024 * 1024)
               print(
                   f"[interference] ts={time.time():.6f} pod={pod} worker={worker} "
-                  f"model={model_id} iteration={iteration} latency_s={elapsed:.6f} "
+                  f"workload=model model={model_id} iteration={iteration} latency_s={elapsed:.6f} "
                   f"ips={(1.0 / elapsed if elapsed > 0 else 0.0):.6f} "
                   f"cuda_allocated_mb={allocated} cuda_reserved_mb={reserved} tokens={outputs.shape[-1]}",
                   flush=True,
@@ -90,6 +132,12 @@ spec:
               fieldPath: metadata.name
         - name: INTERFERENCE_WORKER
           value: ${INTERFERENCE_WORKER}
+        - name: INTERFERENCE_WORKLOAD_KIND
+          value: ${INTERFERENCE_WORKLOAD_KIND}
+        - name: SYNTHETIC_ALLOC_MB
+          value: "${SYNTHETIC_ALLOC_MB}"
+        - name: SYNTHETIC_OP_SIZE
+          value: "${SYNTHETIC_OP_SIZE}"
         - name: INFERENCE_MODEL_ID
           value: ${INFERENCE_MODEL_ID}
         - name: INFERENCE_MODEL_PATH

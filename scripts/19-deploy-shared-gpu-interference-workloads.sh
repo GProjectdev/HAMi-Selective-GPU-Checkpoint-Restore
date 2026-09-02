@@ -10,6 +10,9 @@ POD_COUNT=3
 GROUP="shared-gpu-interference"
 GPU_MEMORY_MB=""
 GPU_CORE_PERCENT=""
+WORKLOAD_KIND="model"
+SYNTHETIC_ALLOC_MB="2048"
+SYNTHETIC_OP_SIZE="4096"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -19,6 +22,9 @@ while [[ $# -gt 0 ]]; do
     --group) shift; GROUP="${1:?missing group}" ;;
     --gpu-memory-mb) shift; GPU_MEMORY_MB="${1:?missing gpu memory mb}" ;;
     --gpu-core-percent) shift; GPU_CORE_PERCENT="${1:?missing gpu core percent}" ;;
+    --workload-kind) shift; WORKLOAD_KIND="${1:?missing workload kind}" ;;
+    --synthetic-alloc-mb) shift; SYNTHETIC_ALLOC_MB="${1:?missing synthetic alloc mb}" ;;
+    --synthetic-op-size) shift; SYNTHETIC_OP_SIZE="${1:?missing synthetic op size}" ;;
     --dry-run|--yes|-y|--env-file)
       break
       ;;
@@ -59,6 +65,10 @@ fi
 
 [[ "${POD_COUNT}" =~ ^[0-9]+$ ]] || die "--pod-count must be numeric."
 (( POD_COUNT >= 2 && POD_COUNT <= 6 )) || die "--pod-count must be between 2 and 6."
+case "${WORKLOAD_KIND}" in
+  model|synthetic) ;;
+  *) die "--workload-kind must be model or synthetic." ;;
+esac
 
 INTERFERENCE_MODEL_SAFE_NAME="$(tr '/:.' '---' <<<"${MODEL}" | tr -cd 'A-Za-z0-9-')"
 INTERFERENCE_GPU_MEMORY_MB="${GPU_MEMORY_MB:-${DEFAULT_GPU_MEMORY_MB}}"
@@ -81,6 +91,7 @@ GCR_REMOTE_REQUIRED="${GCR_REMOTE_REQUIRED:-false}"
 [[ -n "${CHECKPOINT_STORAGE_PATH:-}" ]] || die "Set CHECKPOINT_STORAGE_PATH."
 
 export EXPERIMENT_NAMESPACE INTERFERENCE_GROUP INTERFERENCE_MODEL_SAFE_NAME INTERFERENCE_NODE
+export INTERFERENCE_WORKLOAD_KIND SYNTHETIC_ALLOC_MB SYNTHETIC_OP_SIZE
 export INFERENCE_MODEL_ID INFERENCE_MODEL_RELATIVE_PATH INFERENCE_IMAGE INFERENCE_PIP_INSTALL
 export INFERENCE_PIP_PACKAGES INFERENCE_MAX_NEW_TOKENS INFERENCE_SLEEP_SECONDS
 export INTERFERENCE_GPU_MEMORY_MB INTERFERENCE_GPU_CORE_PERCENT
@@ -126,12 +137,17 @@ if [[ "${DRY_RUN}" != "true" ]]; then
   write_state "last-shared-gpu-interference-group" "${GROUP}"
   write_state "last-shared-gpu-interference-node" "${NODE}"
   write_state "last-shared-gpu-interference-model" "${MODEL}"
+  write_state "last-shared-gpu-interference-workload-kind" "${WORKLOAD_KIND}"
+  write_state "last-shared-gpu-interference-pod-count" "${POD_COUNT}"
   write_state "last-shared-gpu-interference-pods" "$(IFS=,; echo "${deployed[*]}")"
 
   append_summary "# Shared GPU Interference Workloads" "" \
     "- model: ${MODEL}" \
     "- node: ${NODE}" \
     "- pod-count: ${POD_COUNT}" \
+    "- workload-kind: ${WORKLOAD_KIND}" \
+    "- synthetic-alloc-mb: ${SYNTHETIC_ALLOC_MB}" \
+    "- synthetic-op-size: ${SYNTHETIC_OP_SIZE}" \
     "- gpu-memory-mb-per-pod: ${INTERFERENCE_GPU_MEMORY_MB}" \
     "- gpu-core-percent-per-pod: ${INTERFERENCE_GPU_CORE_PERCENT}" \
     "- pods: $(IFS=', '; echo "${deployed[*]}")"
