@@ -4,7 +4,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/common.sh"
 source "${REPO_ROOT}/lib/result.sh"
 
 MODEL=""
-GROUP=""
+GROUP="shared-gpu-interference"
 BASELINE_SECONDS=60
 POST_SECONDS=60
 SAMPLE_INTERVAL_SECONDS=1
@@ -45,10 +45,31 @@ GROUP="${GROUP:-$(cat "${REPO_ROOT}/${STATE_ROOT#./}/last-shared-gpu-interferenc
 MODEL="${MODEL:-$(cat "${REPO_ROOT}/${STATE_ROOT#./}/last-shared-gpu-interference-model" 2>/dev/null || echo unknown)}"
 WORKLOAD_KIND="$(cat "${REPO_ROOT}/${STATE_ROOT#./}/last-shared-gpu-interference-workload-kind" 2>/dev/null || echo model)"
 [[ -n "${GROUP}" ]] || die "Set --group or run scripts/19-deploy-shared-gpu-interference-workloads.sh first."
+MODEL_SAFE_NAME="$(tr '/:.' '---' <<<"${MODEL}" | tr -cd 'A-Za-z0-9-')"
+
+discover_pods_by_selector() {
+  local selector="$1"
+  kubectl -n "${EXPERIMENT_NAMESPACE}" get pods \
+    -l "${selector}" \
+    --field-selector=status.phase=Running \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | sort
+}
 
 refresh_pods() {
-  mapfile -t PODS < <(kubectl -n "${EXPERIMENT_NAMESPACE}" get pods -l "experiment.gpu-cr/group=${GROUP}" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort)
-  (( ${#PODS[@]} >= 2 )) || die "Need at least two Running Pods in group ${GROUP}."
+  local pod
+  mapfile -t PODS < <(discover_pods_by_selector "experiment.gpu-cr/group=${GROUP}")
+  if (( ${#PODS[@]} < 2 )); then
+    mapfile -t PODS < <(
+      discover_pods_by_selector "experiment.gpu-cr/role=shared-gpu-interference" |
+        grep -E "^hami-interf-${MODEL_SAFE_NAME}-[a-z]+$" || true
+    )
+  fi
+  if (( ${#PODS[@]} < 2 )); then
+    die "Need at least two Running shared-GPU interference Pods. Run scripts/19-deploy-shared-gpu-interference-workloads.sh first, or ensure Pods have experiment.gpu-cr/group=${GROUP}."
+  fi
+  for pod in "${PODS[@]}"; do
+    kubectl -n "${EXPERIMENT_NAMESPACE}" label pod "${pod}" "experiment.gpu-cr/group=${GROUP}" --overwrite >/dev/null 2>&1 || true
+  done
   for pod in "${PODS[@]}"; do
     kubectl -n "${EXPERIMENT_NAMESPACE}" wait --for=condition=Ready "pod/${pod}" --timeout=60s
   done

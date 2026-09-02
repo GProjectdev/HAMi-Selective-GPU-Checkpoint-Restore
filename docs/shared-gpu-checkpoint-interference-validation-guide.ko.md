@@ -112,10 +112,13 @@ bash ./scripts/19-deploy-shared-gpu-interference-workloads.sh \
 배포 확인:
 
 ```bash
+kubectl -n hami-selective-cr get pods -l experiment.gpu-cr/group=shared-gpu-interference -o wide
 kubectl -n hami-selective-cr get pods -l experiment.gpu-cr/role=shared-gpu-interference -o wide
-kubectl -n hami-selective-cr get pods -l experiment.gpu-cr/role=shared-gpu-interference -o yaml | \
+kubectl -n hami-selective-cr get pods -l experiment.gpu-cr/group=shared-gpu-interference -o yaml | \
   grep -E 'hami.io/vgpu-devices-allocated|schedulerName|nodeName'
 ```
+
+benchmark 스크립트는 기본적으로 `experiment.gpu-cr/group=shared-gpu-interference` 라벨을 기준으로 Pod를 찾는다. 최신 스크립트는 group 라벨이 빠진 경우에도 `experiment.gpu-cr/role=shared-gpu-interference`와 `hami-interf-<model>-<worker>` 이름 패턴으로 Running Pod를 찾아 group 라벨을 자동 보정한다. 그래도 위 group 라벨 조회에서 Pod가 보이지 않으면 workload를 먼저 다시 배포한다.
 
 로그 확인:
 
