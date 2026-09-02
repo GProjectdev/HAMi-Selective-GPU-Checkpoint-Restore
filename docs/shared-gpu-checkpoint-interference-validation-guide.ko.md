@@ -496,3 +496,103 @@ ls -lh shared-gpu-interference-cei-check.tar.gz
 ```
 
 이 압축 파일과 `summary.md` 출력만 있으면 checkpoint 간 경합, makespan, CEI 계산 가능 여부, CEI가 비었을 때의 원인까지 함께 확인할 수 있다.
+
+## 15. Checkpoint 지연 원인 분해 실험
+
+20번 스크립트는 `solo`, `concurrent2`, `concurrent3`, `staggered` 사이의 시간 차이를 보여준다. 하지만 그것만으로는 왜 느린지, 즉 병목이 GPU copy인지, 디스크 I/O인지, CRIU/CRI-O/gpu-cr runtime 직렬화인지 구분하기 어렵다. 이때는 21번 진단 스크립트를 사용한다.
+
+21번 스크립트는 기존 shared-GPU interference Pod 3개를 대상으로 `solo`와 `concurrent3`를 한 번씩 수행하면서 같은 Worker Node에 privileged diagnostic Pod를 띄운다. 이 Pod는 host root를 읽고 다음 증거를 result directory에 남긴다.
+
+- `host-resource-samples.csv`: host CPU counter, memory available, Dirty/Writeback, load average, diskstats 누적값
+- `host-gpu-samples.csv`: host-level `nvidia-smi` GPU util, memory util, memory used/free, power
+- `host-process-samples.csv`: `criu`, `criugpu`, `crio`, `gpu-cr`, `gcr`, `nvidia`, `conmon`, `crun` 관련 프로세스 스냅샷
+- `journal-crio-*.log`: checkpoint 구간 주변 CRI-O 로그
+- `gpu-cr-node-agent-*.log`: checkpoint 구간 주변 gpu-cr-node-agent 로그
+- `bottleneck-*.csv`: 위 raw sample을 요약한 병목 후보 판단용 표
+
+### 15.1 사전 조건
+
+먼저 shared-GPU Pod 3개가 같은 Worker Node에서 실행 중이어야 한다.
+
+```bash
+cd ~/HAMi-Selective-GPU-Checkpoint-Restore
+
+kubectl -n hami-selective-cr get pods \
+  -l experiment.gpu-cr/group=shared-gpu-interference \
+  -o wide
+```
+
+없으면 다시 배포한다.
+
+```bash
+bash ./scripts/19-deploy-shared-gpu-interference-workloads.sh \
+  --model gpt2 \
+  --node jsj-worker-2 \
+  --pod-count 3 \
+  --gpu-memory-mb 8192 \
+  --gpu-core-percent 30 \
+  --group shared-gpu-interference \
+  --yes
+```
+
+### 15.2 병목 진단 실행
+
+```bash
+bash ./scripts/21-run-shared-gpu-checkpoint-bottleneck-diagnosis.sh \
+  --model gpt2 \
+  --baseline-seconds 30 \
+  --post-seconds 30 \
+  --sample-interval-seconds 1 \
+  --yes
+```
+
+실험 시간을 조금 더 촘촘하게 보고 싶으면 `--baseline-seconds 60 --post-seconds 60`으로 늘린다. diagnostic Pod를 삭제하지 않고 내부를 직접 확인하고 싶으면 `--keep-diagnostic-pod`를 붙인다.
+
+### 15.3 결과 확인
+
+```bash
+RESULT=$(cat .state/last-shared-gpu-bottleneck-result-dir)
+
+cat "$RESULT/summary.md"
+cat "$RESULT/checkpoint-durations.csv"
+cat "$RESULT/checkpoint-makespan.csv"
+cat "$RESULT/bottleneck-disk-summary.csv"
+cat "$RESULT/bottleneck-gpu-summary.csv"
+cat "$RESULT/bottleneck-resource-summary.csv"
+tail -80 "$RESULT/gpu-cr-node-agent-concurrent3.log"
+tail -80 "$RESULT/journal-crio-concurrent3.log"
+```
+
+### 15.4 판단 방법
+
+다음처럼 해석한다.
+
+- `concurrent3 CCI factor`가 높고 `bottleneck-disk-summary.csv`에서 checkpoint 구간 `host_disk_write_mib_delta`, `approx_write_mib_s`, `weighted_io_ms_delta`가 크게 증가하면 디스크 write path 병목 가능성이 높다.
+- `bottleneck-gpu-summary.csv`에서 checkpoint 구간 GPU util 또는 memory util이 튀고 디스크 압박은 작으면 GPU copy/synchronization 경합 가능성이 높다.
+- `host-process-samples.csv`에서 `criu`, `criugpu`, `crio`, `gpu-cr-node-agent` CPU가 높거나 로그에서 checkpoint 처리 순서가 밀리면 CRIU/CRI-O/gpu-cr runtime 직렬화 또는 lock 경합 가능성이 높다.
+- CPU, disk, GPU 지표가 모두 작게 보이는데 duration만 늘면 GCR/CRIU 내부 wait, HAMi runtime/cache path, kubelet/CRI-O API wait처럼 coarse host counter에 잘 안 잡히는 구간을 의심한다.
+
+### 15.5 보여줄 증거 파일
+
+교수님께 보여줄 때는 최소한 아래를 묶으면 된다.
+
+```bash
+RESULT=$(cat .state/last-shared-gpu-bottleneck-result-dir)
+tar -czf shared-gpu-checkpoint-bottleneck-diagnosis.tar.gz \
+  -C "$RESULT" \
+  summary.md \
+  checkpoint-durations.csv \
+  checkpoint-makespan.csv \
+  bottleneck-disk-summary.csv \
+  bottleneck-gpu-summary.csv \
+  bottleneck-resource-summary.csv \
+  host-process-samples.csv \
+  gpu-cr-node-agent-solo.log \
+  gpu-cr-node-agent-concurrent3.log \
+  journal-crio-solo.log \
+  journal-crio-concurrent3.log
+
+ls -lh shared-gpu-checkpoint-bottleneck-diagnosis.tar.gz
+```
+
+이 결과로 “동시 checkpoint가 느리다”에서 한 단계 더 나아가 “느려진 시점에 어떤 host/GPU/runtime 신호가 같이 증가했는가”를 근거로 병목 후보를 좁힐 수 있다.
