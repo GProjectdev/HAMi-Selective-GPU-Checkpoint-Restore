@@ -596,3 +596,86 @@ ls -lh shared-gpu-checkpoint-bottleneck-diagnosis.tar.gz
 ```
 
 이 결과로 “동시 checkpoint가 느리다”에서 한 단계 더 나아가 “느려진 시점에 어떤 host/GPU/runtime 신호가 같이 증가했는가”를 근거로 병목 후보를 좁힐 수 있다.
+
+## 16. 재배포가 ContainerCreating에서 멈출 때
+
+`scripts/19-deploy-shared-gpu-interference-workloads.sh`는 `--group`, `--node`, `--workload-kind` 값을 Pod manifest에 넣어야 한다. 이전 버전에서는 이 값이 비어 들어가서 group label 또는 nodeSelector가 빠질 수 있었다. 최신 코드를 받은 뒤 다시 배포한다.
+
+```bash
+cd ~/HAMi-Selective-GPU-Checkpoint-Restore
+git pull
+```
+
+기존 실험 Pod와 오래된 GPUCheckpoint CR을 정리한다.
+
+```bash
+kubectl -n hami-selective-cr delete pod \
+  -l experiment.gpu-cr/role=shared-gpu-interference \
+  --ignore-not-found=true \
+  --wait=true
+
+kubectl -n hami-selective-cr delete gpucheckpoint \
+  -l experiment.gpu-cr/group=shared-gpu-interference \
+  --ignore-not-found=true
+```
+
+label이 없는 오래된 CR이 남아 있으면 이름 패턴으로 확인 후 삭제한다.
+
+```bash
+kubectl -n hami-selective-cr get gpucheckpoint
+kubectl -n hami-selective-cr delete gpucheckpoint \
+  ckpt-solo-1-hami-interf-gpt2-a \
+  ckpt-sequential-1-hami-interf-gpt2-a \
+  ckpt-sequential-1-hami-interf-gpt2-b \
+  ckpt-sequential-1-hami-interf-gpt2-c \
+  --ignore-not-found=true
+```
+
+다시 배포한다.
+
+```bash
+bash ./scripts/19-deploy-shared-gpu-interference-workloads.sh \
+  --model gpt2 \
+  --node jsj-worker-2 \
+  --pod-count 3 \
+  --gpu-memory-mb 8192 \
+  --gpu-core-percent 30 \
+  --group shared-gpu-interference \
+  --yes
+```
+
+`ContainerCreating` 상태라면 먼저 Event를 본다.
+
+```bash
+kubectl -n hami-selective-cr get pods -o wide
+kubectl -n hami-selective-cr describe pod hami-interf-gpt2-a | tail -100
+kubectl -n hami-selective-cr get events --sort-by=.lastTimestamp | tail -60
+```
+
+Event가 `Pulling image "pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime"`에서 멈춘 것처럼 보이면 아직 이미지 pull 중일 수 있다. 이 이미지는 수 GB라서 첫 실행 때 몇 분 걸릴 수 있다. worker에서 직접 확인한다.
+
+```bash
+ssh jsj-worker-2 "sudo crictl images | grep 'pytorch/pytorch' || true"
+ssh jsj-worker-2 "sudo crictl pull pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime"
+```
+
+Event에 `failed to generate CDI spec`, `failed to get device handle from UUID`, mount 실패, CRI-O 실패가 나오면 이미지 pull 문제가 아니다. 이때는 HAMi device plugin과 CRI-O 로그를 확인한다.
+
+```bash
+kubectl -n kube-system get pods | grep -E 'hami-device-plugin|hami-scheduler'
+kubectl get node jsj-worker-2 -o jsonpath='{.metadata.annotations.hami\.io/node-nvidia-register}{"\n"}'
+
+ssh jsj-worker-2 "sudo journalctl -u crio -n 160 --no-pager"
+ssh jsj-worker-2 "sudo ls -ld /var/lib/gpu-cr/lib /var/lib/gpu-cr/run /var/lib/gcr-data /var/lib/gcr-checkpoint"
+```
+
+정상 배포 후에는 group label과 nodeSelector가 반드시 보여야 한다.
+
+```bash
+kubectl -n hami-selective-cr get pods \
+  -l experiment.gpu-cr/group=shared-gpu-interference \
+  -o wide
+
+kubectl -n hami-selective-cr get pod hami-interf-gpt2-a -o yaml | \
+  grep -E 'experiment.gpu-cr/group|kubernetes.io/hostname|INTERFERENCE_WORKLOAD_KIND' -A1
+```

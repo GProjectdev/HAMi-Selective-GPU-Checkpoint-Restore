@@ -71,6 +71,9 @@ case "${WORKLOAD_KIND}" in
 esac
 
 INTERFERENCE_MODEL_SAFE_NAME="$(tr '/:.' '---' <<<"${MODEL}" | tr -cd 'A-Za-z0-9-')"
+INTERFERENCE_GROUP="${GROUP}"
+INTERFERENCE_NODE="${NODE}"
+INTERFERENCE_WORKLOAD_KIND="${WORKLOAD_KIND}"
 INTERFERENCE_GPU_MEMORY_MB="${GPU_MEMORY_MB:-${DEFAULT_GPU_MEMORY_MB}}"
 INTERFERENCE_GPU_CORE_PERCENT="${GPU_CORE_PERCENT:-${DEFAULT_GPU_CORE_PERCENT}}"
 INFERENCE_IMAGE="${INFERENCE_IMAGE:-pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime}"
@@ -115,6 +118,9 @@ for idx in $(seq 0 $((POD_COUNT - 1))); do
 
   rendered="${RESULT_DIR}/${INTERFERENCE_POD_NAME}.yaml"
   envsubst < "${REPO_ROOT}/manifests/shared-gpu-interference-pod.yaml" > "${rendered}"
+  grep -q "experiment.gpu-cr/group: ${GROUP}$" "${rendered}" || die "Rendered manifest is missing the expected group label: ${GROUP}"
+  grep -q "kubernetes.io/hostname: ${NODE}$" "${rendered}" || die "Rendered manifest is missing the expected node selector: ${NODE}"
+  grep -q "value: ${WORKLOAD_KIND}$" "${rendered}" || die "Rendered manifest is missing the expected workload kind: ${WORKLOAD_KIND}"
   if [[ "${DRY_RUN}" == "true" ]]; then
     kubectl apply --dry-run=server -f "${rendered}"
   else
