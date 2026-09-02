@@ -436,16 +436,46 @@ for row in make_rows:
     by_makespan.setdefault(row["scenario"], []).append(float(row["makespan_ms"]))
 
 log_records = {}
+log_diagnostics = []
 line_re = re.compile(r"ts=([0-9.]+).*pod=([^ ]+).*latency_s=([0-9.]+).*ips=([0-9.]+)")
-for log in result.glob("logs-final-*.txt"):
-    pod = log.name.removeprefix("logs-final-").removesuffix(".txt")
-    records = []
+
+def pod_name_from_log(log):
+    name = log.name
+    if name.startswith("logs-final-"):
+        return name.removeprefix("logs-final-").removesuffix(".txt")
+    m = re.match(r"logs-repeat-\d+-.+?-(hami-interf-.+)\.txt$", name)
+    if m:
+        return m.group(1)
+    return ""
+
+for log in sorted(result.glob("logs-*.txt")):
+    pod = pod_name_from_log(log)
+    if not pod:
+        continue
+    seen = {(ts, latency, ips) for ts, latency, ips in log_records.get(pod, [])}
+    added = 0
     for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
         m = line_re.search(line)
         if not m:
             continue
-        records.append((float(m.group(1)), float(m.group(3)), float(m.group(4))))
-    log_records[pod] = records
+        record = (float(m.group(1)), float(m.group(3)), float(m.group(4)))
+        if record in seen:
+            continue
+        log_records.setdefault(pod, []).append(record)
+        seen.add(record)
+        added += 1
+    pod_records = log_records.get(pod, [])
+    log_diagnostics.append({
+        "log_file": log.name,
+        "pod": pod,
+        "added_records": added,
+        "total_pod_records": len(pod_records),
+        "first_ts": min((r[0] for r in pod_records), default=math.nan),
+        "last_ts": max((r[0] for r in pod_records), default=math.nan),
+    })
+
+for records in log_records.values():
+    records.sort(key=lambda r: r[0])
 
 cei_rows = []
 for row in make_rows:
@@ -508,6 +538,17 @@ with (result / "cei-summary.csv").open("w", newline="") as f:
             "cei": f"{r['cei']:.6f}" if not math.isnan(r["cei"]) else "",
         })
 
+with (result / "cei-log-diagnostics.csv").open("w", newline="") as f:
+    fieldnames = ["log_file", "pod", "added_records", "total_pod_records", "first_ts", "last_ts"]
+    writer = csv.DictWriter(f, fieldnames=fieldnames)
+    writer.writeheader()
+    for r in log_diagnostics:
+        writer.writerow({
+            **r,
+            "first_ts": f"{r['first_ts']:.6f}" if not math.isnan(r["first_ts"]) else "",
+            "last_ts": f"{r['last_ts']:.6f}" if not math.isnan(r["last_ts"]) else "",
+        })
+
 with (result / "summary.md").open("w", encoding="utf-8") as f:
     f.write("# Shared GPU Checkpoint Interference Benchmark\n\n")
     f.write("## Checkpoint-to-Checkpoint Interference\n\n")
@@ -541,6 +582,7 @@ with (result / "summary.md").open("w", encoding="utf-8") as f:
         "checkpoint-makespan-summary.csv",
         "shared-gpu-interference-summary.csv",
         "cei-summary.csv",
+        "cei-log-diagnostics.csv",
         "node-resource-samples.csv",
         "pod-resource-samples.csv",
         "gpu-samples.csv",
@@ -551,6 +593,7 @@ with (result / "summary.md").open("w", encoding="utf-8") as f:
     f.write("- CCI factor는 concurrent/sequential/staggered 개별 checkpoint 평균 시간을 solo checkpoint 평균 시간으로 나눈 내부 비교값이다.\n")
     f.write("- Makespan은 같은 scenario에서 첫 checkpoint 시작부터 마지막 checkpoint 완료까지의 전체 evacuation 시간이다.\n")
     f.write("- CEI는 checkpoint window 동안 sibling Pod의 ips가 baseline 대비 얼마나 감소했는지 계산한 값이다.\n")
+    f.write("- `cei-log-diagnostics.csv`는 CEI 계산에 사용 가능한 Pod 로그 샘플의 시간 범위와 개수를 확인하기 위한 원인 분석 파일이다.\n")
     f.write("- CCI/CEI 임계값은 보편 기준이 아니라 실험 해석을 돕는 heuristic이다.\n")
 
 print(f"Wrote {result / 'summary.md'}")

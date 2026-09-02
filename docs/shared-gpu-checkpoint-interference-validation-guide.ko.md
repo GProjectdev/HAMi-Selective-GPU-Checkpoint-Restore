@@ -402,3 +402,97 @@ bash ./scripts/19-deploy-shared-gpu-interference-workloads.sh \
 ```
 
 이 설정으로도 특정 시나리오에서 Pod가 Error가 되면, 그 결과는 실패가 아니라 중요한 관찰값이다. 즉 “해당 checkpoint 패턴은 shared-GPU workload에 간섭 또는 안정성 문제를 유발한다”는 근거로 분리해서 기록한다.
+
+## 14. 1회 재측정 및 CEI 원인 분석 절차
+
+기존 3회 반복 결과는 checkpoint 간 경합, 즉 CCI와 makespan을 보여주기에 충분하다. 다만 `cei-summary.csv`가 비어 있으면 checkpoint 중 sibling Pod 처리량 저하를 주장할 수 없으므로, 아래 절차로 1회만 다시 측정한다.
+
+### 14.1 기존 shared-GPU 실험 리소스 정리
+
+```bash
+cd ~/HAMi-Selective-GPU-Checkpoint-Restore
+
+kubectl -n hami-selective-cr delete gpucheckpoint \
+  -l experiment.gpu-cr/role=shared-gpu-interference-checkpoint \
+  --ignore-not-found=true
+
+kubectl -n hami-selective-cr delete pod \
+  -l experiment.gpu-cr/group=shared-gpu-interference \
+  --ignore-not-found=true --wait=true
+```
+
+### 14.2 Pod 3개를 같은 Worker Node에 재배포
+
+```bash
+bash ./scripts/19-deploy-shared-gpu-interference-workloads.sh \
+  --model gpt2 \
+  --node jsj-worker-2 \
+  --pod-count 3 \
+  --gpu-memory-mb 8192 \
+  --gpu-core-percent 30 \
+  --group shared-gpu-interference \
+  --yes
+
+kubectl -n hami-selective-cr get pods \
+  -l experiment.gpu-cr/group=shared-gpu-interference \
+  -o wide
+```
+
+세 Pod가 모두 `Running`이고 `NODE`가 모두 `jsj-worker-2`인지 확인한다.
+
+### 14.3 CEI 포함 1회 재측정
+
+```bash
+bash ./scripts/20-run-shared-gpu-checkpoint-interference-benchmark.sh \
+  --model gpt2 \
+  --baseline-seconds 60 \
+  --post-seconds 60 \
+  --sample-interval-seconds 1 \
+  --repeat 1 \
+  --checkpoint-cooldown-seconds 30 \
+  --recreate-between-scenarios \
+  --yes
+```
+
+이번 측정의 목적은 최종 발표용 3회 평균을 다시 만드는 것이 아니라, CEI 샘플이 정상적으로 잡히는지와 비어 있다면 왜 비었는지 확인하는 것이다.
+
+### 14.4 결과 확인
+
+```bash
+RESULT=$(cat .state/last-shared-gpu-interference-result-dir)
+
+cat "$RESULT/summary.md"
+cat "$RESULT/shared-gpu-interference-summary.csv"
+cat "$RESULT/checkpoint-makespan-summary.csv"
+cat "$RESULT/cei-summary.csv"
+cat "$RESULT/cei-log-diagnostics.csv"
+```
+
+판단 기준은 다음과 같다.
+
+- `cei-summary.csv`에 `baseline_samples`와 `during_samples`가 1 이상이면 CEI 계산이 가능하다.
+- `baseline_ips` 대비 `during_ips`가 낮으면 checkpoint 중 sibling Pod 실행 간섭이 관찰된 것이다.
+- `cei-log-diagnostics.csv`의 `added_records`가 0이면 해당 Pod 로그에서 `[interference] ts=... ips=...` 라인이 수집되지 않은 것이다.
+- `cei-log-diagnostics.csv`의 `first_ts`와 `last_ts`가 checkpoint window 밖에 있으면 로그는 있었지만 시간 구간이 맞지 않은 것이다.
+
+### 14.5 이번 결과를 보여줄 때 필요한 파일
+
+```bash
+RESULT=$(cat .state/last-shared-gpu-interference-result-dir)
+tar -czf shared-gpu-interference-cei-check.tar.gz \
+  -C "$RESULT" \
+  summary.md \
+  shared-gpu-interference-summary.csv \
+  checkpoint-durations.csv \
+  checkpoint-makespan.csv \
+  checkpoint-makespan-summary.csv \
+  cei-summary.csv \
+  cei-log-diagnostics.csv \
+  node-resource-samples.csv \
+  pod-resource-samples.csv \
+  gpu-samples.csv
+
+ls -lh shared-gpu-interference-cei-check.tar.gz
+```
+
+이 압축 파일과 `summary.md` 출력만 있으면 checkpoint 간 경합, makespan, CEI 계산 가능 여부, CEI가 비었을 때의 원인까지 함께 확인할 수 있다.
