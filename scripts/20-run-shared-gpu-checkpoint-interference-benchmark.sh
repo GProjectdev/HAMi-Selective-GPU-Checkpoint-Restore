@@ -10,7 +10,9 @@ POST_SECONDS=60
 SAMPLE_INTERVAL_SECONDS=1
 REPEAT=5
 STAGGER_SECONDS=5
+CHECKPOINT_COOLDOWN_SECONDS=30
 RECREATE_BETWEEN_REPEATS=false
+RECREATE_BETWEEN_SCENARIOS=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -21,7 +23,9 @@ while [[ $# -gt 0 ]]; do
     --sample-interval-seconds) shift; SAMPLE_INTERVAL_SECONDS="${1:?missing seconds}" ;;
     --repeat) shift; REPEAT="${1:?missing repeat}" ;;
     --stagger-seconds) shift; STAGGER_SECONDS="${1:?missing seconds}" ;;
+    --checkpoint-cooldown-seconds) shift; CHECKPOINT_COOLDOWN_SECONDS="${1:?missing seconds}" ;;
     --recreate-between-repeats) RECREATE_BETWEEN_REPEATS=true ;;
+    --recreate-between-scenarios) RECREATE_BETWEEN_SCENARIOS=true ;;
     --dry-run|--yes|-y|--env-file)
       break
       ;;
@@ -164,8 +168,10 @@ EOF
 checkpoint_payload_bytes() {
   local pod="$1"
   local checkpoint_path="$2"
+  local output
   [[ -n "${checkpoint_path}" ]] || { printf '0'; return; }
-  kubectl -n "${EXPERIMENT_NAMESPACE}" exec "${pod}" -- sh -c "
+  output="$(
+    kubectl -n "${EXPERIMENT_NAMESPACE}" exec "${pod}" -- sh -c "
     total=0
     for f in '${checkpoint_path}' '${checkpoint_path%.tar}.blob' '${checkpoint_path%.tar}.hami-runtime.tar'; do
       if [ -f \"\$f\" ]; then
@@ -174,7 +180,13 @@ checkpoint_payload_bytes() {
       fi
     done
     echo \"\$total\"
-  " 2>/dev/null | tail -1
+  " 2>/dev/null | tail -1 || true
+  )"
+  if [[ "${output}" =~ ^[0-9]+$ ]]; then
+    printf '%s' "${output}"
+  else
+    printf '0'
+  fi
 }
 
 sanitize_name() {
@@ -269,6 +281,33 @@ run_checkpoint_set() {
   record_makespan "${repeat_id}" "${scenario}" "${concurrency}" "$(IFS='+'; echo "${targets[*]}")" "${row_files[@]}"
 }
 
+recreate_workloads() {
+  local reason="$1"
+  log "${reason}: recreating workload Pods to reset checkpoint/runtime state"
+  bash "${REPO_ROOT}/scripts/19-deploy-shared-gpu-interference-workloads.sh" \
+    --model "${MODEL}" \
+    --node "${WORKLOAD_NODE}" \
+    --pod-count "${#PODS[@]}" \
+    --group "${GROUP}" \
+    --workload-kind "${WORKLOAD_KIND}" \
+    --yes
+  refresh_pods
+  wait_for_steady_state
+}
+
+after_checkpoint_scenario() {
+  local repeat_id="$1"
+  local scenario="$2"
+  capture_full_logs "repeat-${repeat_id}-${scenario}"
+  if (( CHECKPOINT_COOLDOWN_SECONDS > 0 )); then
+    log "Repeat ${repeat_id}/${REPEAT}: cooldown ${CHECKPOINT_COOLDOWN_SECONDS}s after ${scenario}"
+    sleep "${CHECKPOINT_COOLDOWN_SECONDS}"
+  fi
+  if [[ "${RECREATE_BETWEEN_SCENARIOS}" == "true" ]]; then
+    recreate_workloads "Repeat ${repeat_id}/${REPEAT} after ${scenario}"
+  fi
+}
+
 capture_full_logs() {
   local label="$1"
   local pod
@@ -288,12 +327,14 @@ for repeat_id in $(seq 1 "${REPEAT}"); do
   sample_for "${repeat_id}" "solo" "baseline" "${BASELINE_SECONDS}"
   run_checkpoint_set "${repeat_id}" "solo" "parallel" "${PODS[0]}"
   sample_for "${repeat_id}" "solo" "post" "${POST_SECONDS}"
+  after_checkpoint_scenario "${repeat_id}" "solo"
 
   if (( ${#PODS[@]} >= 3 )); then
     log "Repeat ${repeat_id}/${REPEAT}: sequential checkpoint"
     sample_for "${repeat_id}" "sequential" "baseline" "${BASELINE_SECONDS}"
     run_checkpoint_set "${repeat_id}" "sequential" "sequential" "${PODS[0]}" "${PODS[1]}" "${PODS[2]}"
     sample_for "${repeat_id}" "sequential" "post" "${POST_SECONDS}"
+    after_checkpoint_scenario "${repeat_id}" "sequential"
   fi
 
   if (( ${#PODS[@]} >= 2 )); then
@@ -301,6 +342,7 @@ for repeat_id in $(seq 1 "${REPEAT}"); do
     sample_for "${repeat_id}" "concurrent2" "baseline" "${BASELINE_SECONDS}"
     run_checkpoint_set "${repeat_id}" "concurrent2" "parallel" "${PODS[0]}" "${PODS[1]}"
     sample_for "${repeat_id}" "concurrent2" "post" "${POST_SECONDS}"
+    after_checkpoint_scenario "${repeat_id}" "concurrent2"
   fi
 
   if (( ${#PODS[@]} >= 3 )); then
@@ -308,26 +350,19 @@ for repeat_id in $(seq 1 "${REPEAT}"); do
     sample_for "${repeat_id}" "concurrent3" "baseline" "${BASELINE_SECONDS}"
     run_checkpoint_set "${repeat_id}" "concurrent3" "parallel" "${PODS[0]}" "${PODS[1]}" "${PODS[2]}"
     sample_for "${repeat_id}" "concurrent3" "post" "${POST_SECONDS}"
+    after_checkpoint_scenario "${repeat_id}" "concurrent3"
 
     log "Repeat ${repeat_id}/${REPEAT}: staggered periodic checkpoint"
     sample_for "${repeat_id}" "staggered" "baseline" "${BASELINE_SECONDS}"
     run_checkpoint_set "${repeat_id}" "staggered" "staggered" "${PODS[0]}" "${PODS[1]}" "${PODS[2]}"
     sample_for "${repeat_id}" "staggered" "post" "${POST_SECONDS}"
+    after_checkpoint_scenario "${repeat_id}" "staggered"
   fi
 
   capture_full_logs "repeat-${repeat_id}"
 
   if [[ "${RECREATE_BETWEEN_REPEATS}" == "true" && "${repeat_id}" -lt "${REPEAT}" ]]; then
-    log "Repeat ${repeat_id}/${REPEAT}: recreating workload Pods to reset checkpoint/runtime state"
-    bash "${REPO_ROOT}/scripts/19-deploy-shared-gpu-interference-workloads.sh" \
-      --model "${MODEL}" \
-      --node "${WORKLOAD_NODE}" \
-      --pod-count "${#PODS[@]}" \
-      --group "${GROUP}" \
-      --workload-kind "${WORKLOAD_KIND}" \
-      --yes
-    refresh_pods
-    wait_for_steady_state
+    recreate_workloads "Repeat ${repeat_id}/${REPEAT}"
   fi
 done
 

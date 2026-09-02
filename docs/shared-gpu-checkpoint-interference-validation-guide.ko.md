@@ -340,3 +340,62 @@ bash ./scripts/19-deploy-shared-gpu-interference-workloads.sh --model gpt2 --nod
 5. checkpoint 중 sibling Pod의 ips가 감소하면 CEI가 존재한다.
 6. 따라서 shared GPU 환경에서는 checkpoint를 단순 병렬 실행하지 않고 scheduling/orchestration 해야 한다.
 ```
+
+## 13. 연속 Checkpoint로 Pod가 Error가 되는 경우의 권장 설정
+
+이번 실험에서 다음과 같은 상황이 관찰될 수 있다.
+
+```text
+Repeat 1/3: solo checkpoint
+Repeat 1/3: sequential checkpoint
+Failed at line ...
+hami-interf-gpt2-a   0/1   Error
+```
+
+이 경우 `GPUCheckpoint` 자체는 `Completed`가 되었더라도, checkpoint 이후 CUDA/PyTorch workload가 계속 실행되는 과정에서 오류가 발생한 것이다. 특히 같은 Pod에 대해 `solo -> sequential -> concurrent` checkpoint를 짧은 간격으로 계속 수행하면, 본래 보려던 shared-GPU 간섭 효과보다 “반복 checkpoint에 따른 workload 안정성 문제”가 먼저 나타날 수 있다.
+
+따라서 초기 검증에서는 시나리오 사이에 Pod를 재생성하여 각 시나리오가 같은 초기 조건에서 시작되도록 맞춘다.
+
+권장 실행:
+
+```bash
+bash ./scripts/20-run-shared-gpu-checkpoint-interference-benchmark.sh \
+  --model gpt2 \
+  --baseline-seconds 60 \
+  --post-seconds 60 \
+  --sample-interval-seconds 1 \
+  --repeat 3 \
+  --checkpoint-cooldown-seconds 30 \
+  --recreate-between-scenarios \
+  --yes
+```
+
+옵션 의미:
+
+- `--checkpoint-cooldown-seconds 30`: checkpoint 직후 30초 대기하여 GCR/HAMi/runtime 상태가 정리될 시간을 둔다.
+- `--recreate-between-scenarios`: `solo`, `sequential`, `concurrent2`, `concurrent3`, `staggered` 시나리오 사이에 workload Pod를 다시 생성한다.
+- `--recreate-between-repeats`: repeat 사이에서만 Pod를 재생성한다. 반복 안정성 확인에는 유용하지만, 같은 repeat 안에서 여러 시나리오를 연속 수행할 때 생기는 문제를 막기에는 부족할 수 있다.
+
+실험 해석 기준:
+
+```text
+시나리오별 간섭 비교가 목적이면 --recreate-between-scenarios 사용
+반복 checkpoint 내구성 자체를 보고 싶으면 Pod 재생성 없이 실행
+```
+
+Pod가 Error가 된 경우에는 먼저 로그를 보관한 뒤 재배포한다.
+
+```bash
+RESULT=$(cat .state/last-shared-gpu-interference-result-dir 2>/dev/null || true)
+kubectl -n hami-selective-cr logs hami-interf-gpt2-a --tail=200 > "${RESULT:-.}/failed-hami-interf-gpt2-a.log" 2>&1 || true
+
+bash ./scripts/19-deploy-shared-gpu-interference-workloads.sh \
+  --model gpt2 \
+  --node jsj-worker-2 \
+  --pod-count 3 \
+  --gpu-memory-mb 8192 \
+  --gpu-core-percent 30 \
+  --yes
+```
+
+이 설정으로도 특정 시나리오에서 Pod가 Error가 되면, 그 결과는 실패가 아니라 중요한 관찰값이다. 즉 “해당 checkpoint 패턴은 shared-GPU workload에 간섭 또는 안정성 문제를 유발한다”는 근거로 분리해서 기록한다.
